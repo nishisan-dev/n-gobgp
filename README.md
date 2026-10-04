@@ -1,15 +1,15 @@
-# n-gobgp: GoBGP with Kafka event sinks
+# n-gobgp: BGP routing and event streaming in Go
 
 [![Upstream Go Report Card](https://goreportcard.com/badge/github.com/osrg/gobgp)](https://goreportcard.com/report/github.com/osrg/gobgp)
 [![Tests](https://github.com/nishisan-dev/n-gobgp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nishisan-dev/n-gobgp/actions/workflows/ci.yml)
 [![Upstream Go Reference](https://pkg.go.dev/badge/github.com/osrg/gobgp/v4.svg)](https://pkg.go.dev/github.com/osrg/gobgp/v4)
 [![LICENSE](https://img.shields.io/github/license/nishisan-dev/n-gobgp.svg?style=flat-square)](LICENSE)
 
-`n-gobgp` is the Nishisan fork of [GoBGP](https://github.com/osrg/gobgp), an open
-source Border Gateway Protocol (BGP) implementation written in
-[Go](https://go.dev/). This fork adds optional Kafka sinks for native IPv4,
-IPv6, BGP-LS and peer observations, with filtering, startup snapshots and durable
-replay. The primary branch is `main`.
+`n-gobgp` is a Nishisan project for Border Gateway Protocol (BGP) routing and
+event streaming, based on [GoBGP](https://github.com/osrg/gobgp) and written in
+[Go](https://go.dev/). It combines BGP routing with optional Kafka sinks for
+native IPv4, IPv6, BGP-LS and peer observations, with filtering, startup RIB
+snapshots and durable replay. The primary branch is `main`.
 
 ----
 
@@ -37,7 +37,7 @@ configuration, then start the daemon and inspect its peers:
 
 ## Documentation
 
-### Fork extensions: Kafka event sinks
+### Project extensions: Kafka event sinks
 
 Kafka is disabled by default. Enable it in the daemon configuration to publish
 native `api.WatchEventResponse` ProtoJSON records to selected topics and
@@ -102,7 +102,7 @@ Candidate Path examples. Use the Kafka guides above to export those observations
 
 ## Community, discussion and support
 
-For this fork and its extensions, use
+For this project and its extensions, use
 [issues](https://github.com/nishisan-dev/n-gobgp/issues) and
 [pull requests](https://github.com/nishisan-dev/n-gobgp/pulls) in this repository.
 The upstream GoBGP community also has
