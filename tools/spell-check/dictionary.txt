@@ -8,6 +8,7 @@ asplain
 bgpd
 bsid
 buflen
+checksum
 cidr
 distinguisher
 dpuatsfh
@@ -30,6 +31,7 @@ ibgp
 interwork
 ipproto
 isis
+kafka
 keepalive
 keepalives
 keychain
@@ -57,6 +59,8 @@ rpki
 sabevodcitu
 sadb
 safi
+sasl
+serializer
 srgb
 srlg
 srpolicy
@@ -66,5 +70,6 @@ syslog
 teid
 unicast
 uptime
+username
 vpls
 zapi

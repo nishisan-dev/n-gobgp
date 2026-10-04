@@ -2032,8 +2032,9 @@ func (s *BgpServer) handleFSMMessage(peer *peer, e *fsmMsg) {
 					}
 					peerInfo := *peer.peerInfo.Load()
 					ev := &watchEventEor{
-						Family:   f,
-						PeerInfo: &peerInfo,
+						Family:    f,
+						PeerInfo:  &peerInfo,
+						Timestamp: e.timestamp,
 					}
 					s.notifyWatcher(watchEventTypeEor, ev)
 					peer.fsm.lock.Lock()
@@ -5221,12 +5222,18 @@ type watchEventEor struct {
 }
 
 type watchOptions struct {
-	bestPath         bool
-	preUpdate        bool
-	preUpdateFilter  func(w watchEvent) bool
-	postUpdate       bool
-	postUpdateFilter func(w watchEvent) bool
-	adjInWithdraw    bool
+	initialEvents        *[]watchEvent
+	initialFamilies      []bgp.Family
+	limitInitialFamilies bool
+	boundedSize          int
+	onDrop               func()
+	noInitialPeer        bool
+	bestPath             bool
+	preUpdate            bool
+	preUpdateFilter      func(w watchEvent) bool
+	postUpdate           bool
+	postUpdateFilter     func(w watchEvent) bool
+	adjInWithdraw        bool
 
 	peerState      bool
 	initBest       bool
@@ -5347,6 +5354,20 @@ func (w *watcher) Event() <-chan watchEvent {
 }
 
 func (w *watcher) notify(v watchEvent) {
+	if w.opts.initialEvents != nil {
+		*w.opts.initialEvents = append(*w.opts.initialEvents, v)
+		return
+	}
+	if w.ch == nil {
+		select {
+		case w.realCh <- v:
+		default:
+			if w.opts.onDrop != nil {
+				w.opts.onDrop()
+			}
+		}
+		return
+	}
 	w.ch.In() <- v
 }
 
@@ -5374,6 +5395,10 @@ func (w *watcher) Stop() {
 			}
 			w.s.watcherMu.Unlock()
 
+			if w.ch == nil {
+				close(w.realCh)
+				return
+			}
 			cleanInfiniteChannel(w.ch)
 			// the loop function goroutine might be blocked for
 			// writing to realCh. make sure it finishes.
@@ -5384,6 +5409,10 @@ func (w *watcher) Stop() {
 		return nil
 	}
 
+	if w.ch == nil {
+		_ = cleanup()
+		return
+	}
 	if err := w.s.mgmtOperation(cleanup, false); err != nil {
 		// Serve has stopped, so there is no management loop left to serialize cleanup.
 		// No new watcher notifications can be produced after the server has stopped.
@@ -5418,7 +5447,6 @@ func (s *BgpServer) watch(opts ...WatchOption) (*watcher, error) {
 		w = &watcher{
 			s:       s,
 			realCh:  make(chan watchEvent, 8),
-			ch:      channels.NewInfiniteChannel(),
 			filters: make(map[watchEventType]func(w watchEvent) bool),
 		}
 
@@ -5426,6 +5454,11 @@ func (s *BgpServer) watch(opts ...WatchOption) (*watcher, error) {
 			opt(&w.opts)
 		}
 
+		if w.opts.boundedSize > 0 {
+			w.realCh = make(chan watchEvent, w.opts.boundedSize)
+		} else {
+			w.ch = channels.NewInfiniteChannel()
+		}
 		s.watcherMu.Lock()
 		defer s.watcherMu.Unlock()
 
@@ -5443,7 +5476,7 @@ func (s *BgpServer) watch(opts ...WatchOption) (*watcher, error) {
 				w.filters[watchEventTypePostUpdate] = w.opts.postUpdateFilter
 			}
 		}
-		if w.opts.peerState {
+		if w.opts.peerState && !w.opts.noInitialPeer {
 			for _, p := range s.neighborMap {
 				state := p.State()
 				w.notify(newWatchEventPeer(p, nil, state, state, apiutil.PEER_EVENT_INIT))
@@ -5451,10 +5484,13 @@ func (s *BgpServer) watch(opts ...WatchOption) (*watcher, error) {
 			w.notify(&watchEventPeer{Type: apiutil.PEER_EVENT_END_OF_INIT})
 		}
 
-		if w.opts.initBest && s.active() == nil {
+		initialFamily := func(f bgp.Family) bool {
+			return !w.opts.limitInitialFamilies || slices.Contains(w.opts.initialFamilies, f)
+		}
+		if w.opts.initBest && s.active() == nil && (!w.opts.limitInitialFamilies || len(w.opts.initialFamilies) > 0) {
 			w.notify(&watchEventBestPath{
-				PathList:      s.globalRib.GetBestPathList(table.GLOBAL_RIB_NAME, 0, nil),
-				MultiPathList: s.globalRib.GetBestMultiPathList(table.GLOBAL_RIB_NAME, nil),
+				PathList:      s.globalRib.GetBestPathList(table.GLOBAL_RIB_NAME, 0, w.opts.initialFamilies),
+				MultiPathList: s.globalRib.GetBestMultiPathList(table.GLOBAL_RIB_NAME, w.opts.initialFamilies),
 				Timestamp:     time.Now(),
 			})
 		}
@@ -5464,6 +5500,9 @@ func (s *BgpServer) watch(opts ...WatchOption) (*watcher, error) {
 				func() {
 					conf := p.fsm.pConf.ReadOnly()
 					for _, a := range conf.AfiSafis {
+						if !initialFamily(a.State.Family) {
+							continue
+						}
 						if s := a.MpGracefulRestart.State; s.EndOfRibReceived {
 							family := a.State.Family
 							peerInfo := *p.peerInfo.Load()
@@ -5496,6 +5535,9 @@ func (s *BgpServer) watch(opts ...WatchOption) (*watcher, error) {
 				_, y := peer.fsm.capMap[bgp.BGP_CAP_FOUR_OCTET_AS_NUMBER]
 				peer.fsm.lock.Unlock()
 				for _, rf := range peer.configuredRFlist() {
+					if !initialFamily(rf) {
+						continue
+					}
 					conf := peer.fsm.pConf.ReadOnly()
 					update := &watchEventUpdate{
 						PeerAS:       conf.State.PeerAs,
@@ -5533,6 +5575,9 @@ func (s *BgpServer) watch(opts ...WatchOption) (*watcher, error) {
 		}
 		if w.opts.initPostUpdate && s.active() == nil {
 			for _, rf := range s.globalRib.GetRFlist() {
+				if !initialFamily(rf) {
+					continue
+				}
 				tbl, ok := s.globalRib.GetTable(rf)
 				if !ok || len(tbl.GetDestinations()) == 0 {
 					continue
@@ -5579,6 +5624,9 @@ func (s *BgpServer) watch(opts ...WatchOption) (*watcher, error) {
 				}
 			}
 		}
+		// Initial references and watcher registration share one management operation.
+		// Conversion and delivery of the copied lists happen outside the BGP loop.
+		w.opts.initialEvents = nil
 		if w.opts.bestPath {
 			register(watchEventTypeBestPath, w)
 		}
@@ -5601,7 +5649,9 @@ func (s *BgpServer) watch(opts ...WatchOption) (*watcher, error) {
 			register(watchEventTypeRecvMsg, w)
 		}
 
-		go w.loop()
+		if w.ch != nil {
+			go w.loop()
+		}
 		return nil
 	}, false)
 	if err != nil {

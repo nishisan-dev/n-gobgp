@@ -335,3 +335,7 @@
             [policy-definitions.statements.actions.bgp-actions.set-large-community.set-large-community-method]
                 communities-list = ["100:200:300", "^200:"]
 ```
+
+## Kafka event sinks
+
+Optional durable Kafka event publishing is documented in [Kafka event sinks](kafka-event-sinks.md).
