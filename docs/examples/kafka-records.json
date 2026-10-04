@@ -1,0 +1,968 @@
+{
+  "ipv4": {
+    "topic": "network.bgp.raw",
+    "key": "192.0.2.1",
+    "headers": {
+      "content-type": "application/json",
+      "serializer": "protojson",
+      "schema": "api.WatchEventResponse",
+      "sink": "bgp-raw",
+      "gobgp-version": "4.9.0",
+      "source": "adj-in",
+      "event-type": "route",
+      "observed-at": "2026-10-04T12:00:00Z",
+      "event-id": "abea3a4d-e6d5-4d39-b52f-c97c40993e6c",
+      "stream-id": "11111111-1111-4111-8111-111111111111",
+      "collector-id": "edge-router-01",
+      "spool-sequence": "4001"
+    },
+    "value": {
+      "table": {
+        "paths": [
+          {
+            "nlri": {
+              "prefix": {
+                "prefixLen": 24,
+                "prefix": "198.51.100.0"
+              }
+            },
+            "pattrs": [
+              {
+                "origin": {}
+              },
+              {
+                "asPath": {
+                  "segments": [
+                    {
+                      "type": "TYPE_AS_SEQUENCE",
+                      "numbers": [
+                        65001,
+                        64496
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "nextHop": {
+                  "nextHop": "192.0.2.1"
+                }
+              },
+              {
+                "localPref": {
+                  "localPref": 100
+                }
+              },
+              {
+                "multiExitDisc": {
+                  "med": 20
+                }
+              },
+              {
+                "communities": {
+                  "communities": [
+                    4259905636,
+                    4259905736
+                  ]
+                }
+              }
+            ],
+            "age": "2026-10-04T12:00:00Z",
+            "family": {
+              "afi": "AFI_IP",
+              "safi": "SAFI_UNICAST"
+            },
+            "sourceAsn": 65001,
+            "sourceId": "192.0.2.1",
+            "neighborIp": "192.0.2.1",
+            "identifier": 7
+          }
+        ]
+      }
+    }
+  },
+  "ipv6": {
+    "topic": "network.bgp.best",
+    "key": "192.0.2.1",
+    "headers": {
+      "content-type": "application/json",
+      "serializer": "protojson",
+      "schema": "api.WatchEventResponse",
+      "sink": "best-routes",
+      "gobgp-version": "4.9.0",
+      "source": "best",
+      "event-type": "route",
+      "observed-at": "2026-10-04T12:00:00Z",
+      "event-id": "cce8e35d-9fed-4c9a-b4c9-e08d1850f9ce",
+      "stream-id": "22222222-2222-4222-8222-222222222222",
+      "collector-id": "edge-router-01",
+      "spool-sequence": "8001"
+    },
+    "value": {
+      "table": {
+        "paths": [
+          {
+            "nlri": {
+              "prefix": {
+                "prefixLen": 48,
+                "prefix": "2001:db8:100::"
+              }
+            },
+            "pattrs": [
+              {
+                "origin": {}
+              },
+              {
+                "asPath": {
+                  "segments": [
+                    {
+                      "type": "TYPE_AS_SEQUENCE",
+                      "numbers": [
+                        65001,
+                        64496
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "mpReach": {
+                  "family": {
+                    "afi": "AFI_IP6",
+                    "safi": "SAFI_UNICAST"
+                  },
+                  "nextHops": [
+                    "2001:db8::1"
+                  ],
+                  "nlris": [
+                    {
+                      "prefix": {
+                        "prefixLen": 48,
+                        "prefix": "2001:db8:100::"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "localPref": {
+                  "localPref": 100
+                }
+              }
+            ],
+            "age": "2026-10-04T12:00:00Z",
+            "family": {
+              "afi": "AFI_IP6",
+              "safi": "SAFI_UNICAST"
+            },
+            "sourceAsn": 65001,
+            "sourceId": "192.0.2.1",
+            "neighborIp": "192.0.2.1",
+            "identifier": 7
+          }
+        ]
+      }
+    }
+  },
+  "ls-node": {
+    "topic": "network.bgpls.raw",
+    "key": "192.0.2.1",
+    "headers": {
+      "content-type": "application/json",
+      "serializer": "protojson",
+      "schema": "api.WatchEventResponse",
+      "sink": "bgpls",
+      "gobgp-version": "4.9.0",
+      "source": "adj-in",
+      "event-type": "route",
+      "observed-at": "2026-10-04T12:00:00Z",
+      "event-id": "929f377b-3917-4ee9-9a64-4afb3ee2e65e",
+      "stream-id": "33333333-3333-4333-8333-333333333333",
+      "snapshot-id": "44444444-4444-4444-8444-444444444444",
+      "snapshot-phase": "data",
+      "collector-id": "edge-router-01",
+      "spool-sequence": "10001"
+    },
+    "value": {
+      "table": {
+        "paths": [
+          {
+            "nlri": {
+              "lsAddrPrefix": {
+                "type": "LS_NLRI_TYPE_NODE",
+                "nlri": {
+                  "node": {
+                    "localNode": {
+                      "asn": 65000,
+                      "bgpLsId": 1,
+                      "igpRouterId": "0000.0000.0001"
+                    }
+                  }
+                },
+                "length": 39,
+                "protocolId": "LS_PROTOCOL_ID_ISIS_L2",
+                "identifier": "42"
+              }
+            },
+            "pattrs": [
+              {
+                "origin": {}
+              },
+              {
+                "asPath": {
+                  "segments": [
+                    {
+                      "type": "TYPE_AS_SEQUENCE",
+                      "numbers": [
+                        65001,
+                        64496
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "mpReach": {
+                  "family": {
+                    "afi": "AFI_LS",
+                    "safi": "SAFI_LS"
+                  },
+                  "nextHops": [
+                    "192.0.2.1"
+                  ],
+                  "nlris": [
+                    {
+                      "lsAddrPrefix": {
+                        "type": "LS_NLRI_TYPE_NODE",
+                        "nlri": {
+                          "node": {
+                            "localNode": {
+                              "asn": 65000,
+                              "bgpLsId": 1,
+                              "igpRouterId": "0000.0000.0001"
+                            }
+                          }
+                        },
+                        "length": 39,
+                        "protocolId": "LS_PROTOCOL_ID_ISIS_L2",
+                        "identifier": "42"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "ls": {
+                  "node": {
+                    "name": "edge-router-01",
+                    "localRouterId": "192.0.2.11",
+                    "isisArea": "SQAB",
+                    "opaque": "aW52ZW50b3J5OmVkZ2UtMDE=",
+                    "srCapabilities": {
+                      "ipv4Supported": true,
+                      "ipv6Supported": true,
+                      "ranges": [
+                        {
+                          "begin": 16000,
+                          "end": 23999
+                        }
+                      ]
+                    },
+                    "srAlgorithms": "AAE="
+                  },
+                  "link": {
+                    "localRouterId": "192.0.2.11"
+                  },
+                  "prefix": {},
+                  "bgpPeerSegment": {},
+                  "srv6Sid": {},
+                  "srPolicy": {}
+                }
+              }
+            ],
+            "age": "2026-10-04T12:00:00Z",
+            "family": {
+              "afi": "AFI_LS",
+              "safi": "SAFI_LS"
+            },
+            "sourceAsn": 65001,
+            "sourceId": "192.0.2.1",
+            "neighborIp": "192.0.2.1",
+            "identifier": 7
+          }
+        ]
+      }
+    }
+  },
+  "ls-link": {
+    "topic": "network.bgpls.raw",
+    "key": "192.0.2.1",
+    "headers": {
+      "content-type": "application/json",
+      "serializer": "protojson",
+      "schema": "api.WatchEventResponse",
+      "sink": "bgpls",
+      "gobgp-version": "4.9.0",
+      "source": "adj-in",
+      "event-type": "route",
+      "observed-at": "2026-10-04T12:00:00Z",
+      "event-id": "79f52a8b-54ea-4674-8731-7c71435b2279",
+      "stream-id": "33333333-3333-4333-8333-333333333333",
+      "snapshot-id": "44444444-4444-4444-8444-444444444444",
+      "snapshot-phase": "data",
+      "collector-id": "edge-router-01",
+      "spool-sequence": "10002"
+    },
+    "value": {
+      "table": {
+        "paths": [
+          {
+            "nlri": {
+              "lsAddrPrefix": {
+                "type": "LS_NLRI_TYPE_LINK",
+                "nlri": {
+                  "link": {
+                    "localNode": {
+                      "asn": 65000,
+                      "bgpLsId": 1,
+                      "igpRouterId": "0000.0000.0001"
+                    },
+                    "remoteNode": {
+                      "asn": 65000,
+                      "bgpLsId": 2,
+                      "igpRouterId": "0000.0000.0002"
+                    },
+                    "linkDescriptor": {
+                      "linkLocalId": 10,
+                      "linkRemoteId": 20,
+                      "interfaceAddrIpv4": "192.0.2.11",
+                      "neighborAddrIpv4": "192.0.2.12"
+                    }
+                  }
+                },
+                "length": 97,
+                "protocolId": "LS_PROTOCOL_ID_ISIS_L2",
+                "identifier": "42"
+              }
+            },
+            "pattrs": [
+              {
+                "origin": {}
+              },
+              {
+                "asPath": {
+                  "segments": [
+                    {
+                      "type": "TYPE_AS_SEQUENCE",
+                      "numbers": [
+                        65001,
+                        64496
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "mpReach": {
+                  "family": {
+                    "afi": "AFI_LS",
+                    "safi": "SAFI_LS"
+                  },
+                  "nextHops": [
+                    "192.0.2.1"
+                  ],
+                  "nlris": [
+                    {
+                      "lsAddrPrefix": {
+                        "type": "LS_NLRI_TYPE_LINK",
+                        "nlri": {
+                          "link": {
+                            "localNode": {
+                              "asn": 65000,
+                              "bgpLsId": 1,
+                              "igpRouterId": "0000.0000.0001"
+                            },
+                            "remoteNode": {
+                              "asn": 65000,
+                              "bgpLsId": 2,
+                              "igpRouterId": "0000.0000.0002"
+                            },
+                            "linkDescriptor": {
+                              "linkLocalId": 10,
+                              "linkRemoteId": 20,
+                              "interfaceAddrIpv4": "192.0.2.11",
+                              "neighborAddrIpv4": "192.0.2.12"
+                            }
+                          }
+                        },
+                        "length": 97,
+                        "protocolId": "LS_PROTOCOL_ID_ISIS_L2",
+                        "identifier": "42"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "ls": {
+                  "node": {
+                    "localRouterId": "192.0.2.11"
+                  },
+                  "link": {
+                    "name": "edge-01-to-edge-02",
+                    "localRouterId": "192.0.2.11",
+                    "remoteRouterId": "192.0.2.12",
+                    "adminGroup": 3,
+                    "defaultTeMetric": 20,
+                    "igpMetric": 10,
+                    "bandwidth": 1250000000,
+                    "reservableBandwidth": 1000000000,
+                    "unreservedBandwidth": [
+                      1000000000,
+                      1000000000,
+                      900000000,
+                      800000000,
+                      700000000,
+                      600000000,
+                      500000000,
+                      400000000
+                    ],
+                    "srAdjacencySid": 24010,
+                    "srlgs": [
+                      100,
+                      200
+                    ],
+                    "srAdjacencySids": [
+                      {
+                        "sid": 24010
+                      }
+                    ]
+                  },
+                  "prefix": {},
+                  "bgpPeerSegment": {},
+                  "srv6Sid": {},
+                  "srPolicy": {}
+                }
+              }
+            ],
+            "age": "2026-10-04T12:00:00Z",
+            "family": {
+              "afi": "AFI_LS",
+              "safi": "SAFI_LS"
+            },
+            "sourceAsn": 65001,
+            "sourceId": "192.0.2.1",
+            "neighborIp": "192.0.2.1",
+            "identifier": 7
+          }
+        ]
+      }
+    }
+  },
+  "ls-prefix": {
+    "topic": "network.bgpls.raw",
+    "key": "192.0.2.1",
+    "headers": {
+      "content-type": "application/json",
+      "serializer": "protojson",
+      "schema": "api.WatchEventResponse",
+      "sink": "bgpls",
+      "gobgp-version": "4.9.0",
+      "source": "adj-in",
+      "event-type": "route",
+      "observed-at": "2026-10-04T12:00:00Z",
+      "event-id": "05acc6ad-c7f0-431e-b64e-b564efd07b1f",
+      "stream-id": "33333333-3333-4333-8333-333333333333",
+      "snapshot-id": "44444444-4444-4444-8444-444444444444",
+      "snapshot-phase": "data",
+      "collector-id": "edge-router-01",
+      "spool-sequence": "10003"
+    },
+    "value": {
+      "table": {
+        "paths": [
+          {
+            "nlri": {
+              "lsAddrPrefix": {
+                "type": "LS_NLRI_TYPE_PREFIX_V4",
+                "nlri": {
+                  "prefixV4": {
+                    "localNode": {
+                      "asn": 65000,
+                      "bgpLsId": 1,
+                      "igpRouterId": "0000.0000.0001"
+                    },
+                    "prefixDescriptor": {
+                      "ipReachability": [
+                        "198.51.100.11/32"
+                      ]
+                    }
+                  }
+                },
+                "length": 48,
+                "protocolId": "LS_PROTOCOL_ID_ISIS_L2",
+                "identifier": "42"
+              }
+            },
+            "pattrs": [
+              {
+                "origin": {}
+              },
+              {
+                "asPath": {
+                  "segments": [
+                    {
+                      "type": "TYPE_AS_SEQUENCE",
+                      "numbers": [
+                        65001,
+                        64496
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "mpReach": {
+                  "family": {
+                    "afi": "AFI_LS",
+                    "safi": "SAFI_LS"
+                  },
+                  "nextHops": [
+                    "192.0.2.1"
+                  ],
+                  "nlris": [
+                    {
+                      "lsAddrPrefix": {
+                        "type": "LS_NLRI_TYPE_PREFIX_V4",
+                        "nlri": {
+                          "prefixV4": {
+                            "localNode": {
+                              "asn": 65000,
+                              "bgpLsId": 1,
+                              "igpRouterId": "0000.0000.0001"
+                            },
+                            "prefixDescriptor": {
+                              "ipReachability": [
+                                "198.51.100.11/32"
+                              ]
+                            }
+                          }
+                        },
+                        "length": 48,
+                        "protocolId": "LS_PROTOCOL_ID_ISIS_L2",
+                        "identifier": "42"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "ls": {
+                  "node": {},
+                  "link": {},
+                  "prefix": {
+                    "opaque": "bG9vcGJhY2s6ZWRnZS0wMQ==",
+                    "srPrefixSid": 16011,
+                    "srPrefixSids": [
+                      {
+                        "sid": 16011
+                      }
+                    ]
+                  },
+                  "bgpPeerSegment": {},
+                  "srv6Sid": {},
+                  "srPolicy": {}
+                }
+              }
+            ],
+            "age": "2026-10-04T12:00:00Z",
+            "family": {
+              "afi": "AFI_LS",
+              "safi": "SAFI_LS"
+            },
+            "sourceAsn": 65001,
+            "sourceId": "192.0.2.1",
+            "neighborIp": "192.0.2.1",
+            "identifier": 7
+          }
+        ]
+      }
+    }
+  },
+  "withdraw": {
+    "topic": "network.bgpls.raw",
+    "key": "192.0.2.1",
+    "headers": {
+      "content-type": "application/json",
+      "serializer": "protojson",
+      "schema": "api.WatchEventResponse",
+      "sink": "bgpls",
+      "gobgp-version": "4.9.0",
+      "source": "adj-in",
+      "event-type": "withdraw",
+      "observed-at": "2026-10-04T12:01:00Z",
+      "event-id": "a969a690-0ee8-4a57-bb6d-98ae10548a19",
+      "stream-id": "33333333-3333-4333-8333-333333333333",
+      "collector-id": "edge-router-01",
+      "spool-sequence": "10005"
+    },
+    "value": {
+      "table": {
+        "paths": [
+          {
+            "nlri": {
+              "lsAddrPrefix": {
+                "type": "LS_NLRI_TYPE_LINK",
+                "nlri": {
+                  "link": {
+                    "localNode": {
+                      "asn": 65000,
+                      "bgpLsId": 1,
+                      "igpRouterId": "0000.0000.0001"
+                    },
+                    "remoteNode": {
+                      "asn": 65000,
+                      "bgpLsId": 2,
+                      "igpRouterId": "0000.0000.0002"
+                    },
+                    "linkDescriptor": {
+                      "linkLocalId": 10,
+                      "linkRemoteId": 20,
+                      "interfaceAddrIpv4": "192.0.2.11",
+                      "neighborAddrIpv4": "192.0.2.12"
+                    }
+                  }
+                },
+                "length": 97,
+                "protocolId": "LS_PROTOCOL_ID_ISIS_L2",
+                "identifier": "42"
+              }
+            },
+            "pattrs": [
+              {
+                "origin": {}
+              },
+              {
+                "asPath": {
+                  "segments": [
+                    {
+                      "type": "TYPE_AS_SEQUENCE",
+                      "numbers": [
+                        65001,
+                        64496
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "mpReach": {
+                  "family": {
+                    "afi": "AFI_LS",
+                    "safi": "SAFI_LS"
+                  },
+                  "nextHops": [
+                    "192.0.2.1"
+                  ],
+                  "nlris": [
+                    {
+                      "lsAddrPrefix": {
+                        "type": "LS_NLRI_TYPE_LINK",
+                        "nlri": {
+                          "link": {
+                            "localNode": {
+                              "asn": 65000,
+                              "bgpLsId": 1,
+                              "igpRouterId": "0000.0000.0001"
+                            },
+                            "remoteNode": {
+                              "asn": 65000,
+                              "bgpLsId": 2,
+                              "igpRouterId": "0000.0000.0002"
+                            },
+                            "linkDescriptor": {
+                              "linkLocalId": 10,
+                              "linkRemoteId": 20,
+                              "interfaceAddrIpv4": "192.0.2.11",
+                              "neighborAddrIpv4": "192.0.2.12"
+                            }
+                          }
+                        },
+                        "length": 97,
+                        "protocolId": "LS_PROTOCOL_ID_ISIS_L2",
+                        "identifier": "42"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "ls": {
+                  "node": {
+                    "localRouterId": "192.0.2.11"
+                  },
+                  "link": {
+                    "name": "edge-01-to-edge-02",
+                    "localRouterId": "192.0.2.11",
+                    "remoteRouterId": "192.0.2.12",
+                    "adminGroup": 3,
+                    "defaultTeMetric": 20,
+                    "igpMetric": 10,
+                    "bandwidth": 1250000000,
+                    "reservableBandwidth": 1000000000,
+                    "unreservedBandwidth": [
+                      1000000000,
+                      1000000000,
+                      900000000,
+                      800000000,
+                      700000000,
+                      600000000,
+                      500000000,
+                      400000000
+                    ],
+                    "srAdjacencySid": 24010,
+                    "srlgs": [
+                      100,
+                      200
+                    ],
+                    "srAdjacencySids": [
+                      {
+                        "sid": 24010
+                      }
+                    ]
+                  },
+                  "prefix": {},
+                  "bgpPeerSegment": {},
+                  "srv6Sid": {},
+                  "srPolicy": {}
+                }
+              }
+            ],
+            "age": "2026-10-04T12:00:00Z",
+            "isWithdraw": true,
+            "family": {
+              "afi": "AFI_LS",
+              "safi": "SAFI_LS"
+            },
+            "sourceAsn": 65001,
+            "sourceId": "192.0.2.1",
+            "neighborIp": "192.0.2.1",
+            "identifier": 7
+          }
+        ]
+      }
+    }
+  },
+  "eor": {
+    "topic": "network.bgp.raw",
+    "key": "192.0.2.1",
+    "headers": {
+      "content-type": "application/json",
+      "serializer": "protojson",
+      "schema": "api.WatchEventResponse",
+      "sink": "bgp-raw",
+      "gobgp-version": "4.9.0",
+      "source": "adj-in",
+      "event-type": "eor",
+      "observed-at": "2026-10-04T12:02:00Z",
+      "event-id": "525d5950-b2de-4470-a016-6290e66667bd",
+      "stream-id": "11111111-1111-4111-8111-111111111111",
+      "collector-id": "edge-router-01",
+      "spool-sequence": "4003"
+    },
+    "value": {
+      "table": {
+        "paths": [
+          {
+            "age": "1970-01-01T00:00:00Z",
+            "family": {
+              "afi": "AFI_LS",
+              "safi": "SAFI_LS"
+            },
+            "sourceAsn": 65001,
+            "sourceId": "192.0.2.1",
+            "neighborIp": "192.0.2.1"
+          }
+        ]
+      }
+    }
+  },
+  "peer": {
+    "topic": "network.bgp.raw",
+    "key": "192.0.2.1",
+    "headers": {
+      "content-type": "application/json",
+      "serializer": "protojson",
+      "schema": "api.WatchEventResponse",
+      "sink": "bgp-raw",
+      "gobgp-version": "4.9.0",
+      "source": "peer",
+      "event-type": "peer-state",
+      "observed-at": "2026-10-04T12:00:00Z",
+      "event-id": "230302ac-2e56-4d59-b10d-8da30bb0de28",
+      "stream-id": "11111111-1111-4111-8111-111111111111",
+      "collector-id": "edge-router-01",
+      "spool-sequence": "4002"
+    },
+    "value": {
+      "peer": {
+        "type": "TYPE_STATE",
+        "peer": {
+          "conf": {
+            "localAsn": 65000,
+            "neighborAddress": "192.0.2.1",
+            "peerAsn": 65001,
+            "peerGroup": "route-collectors"
+          },
+          "state": {
+            "localAsn": 65000,
+            "neighborAddress": "192.0.2.1",
+            "peerAsn": 65001,
+            "peerGroup": "route-collectors",
+            "sessionState": "SESSION_STATE_ESTABLISHED",
+            "adminState": "ADMIN_STATE_UP",
+            "remoteCap": [
+              {
+                "multiProtocol": {
+                  "family": {
+                    "afi": "AFI_IP",
+                    "safi": "SAFI_UNICAST"
+                  }
+                }
+              },
+              {
+                "multiProtocol": {
+                  "family": {
+                    "afi": "AFI_IP6",
+                    "safi": "SAFI_UNICAST"
+                  }
+                }
+              },
+              {
+                "multiProtocol": {
+                  "family": {
+                    "afi": "AFI_LS",
+                    "safi": "SAFI_LS"
+                  }
+                }
+              },
+              {
+                "routeRefresh": {}
+              },
+              {
+                "fourOctetAsn": {
+                  "asn": 65001
+                }
+              }
+            ],
+            "localCap": [
+              {
+                "multiProtocol": {
+                  "family": {
+                    "afi": "AFI_IP",
+                    "safi": "SAFI_UNICAST"
+                  }
+                }
+              },
+              {
+                "multiProtocol": {
+                  "family": {
+                    "afi": "AFI_IP6",
+                    "safi": "SAFI_UNICAST"
+                  }
+                }
+              },
+              {
+                "multiProtocol": {
+                  "family": {
+                    "afi": "AFI_LS",
+                    "safi": "SAFI_LS"
+                  }
+                }
+              },
+              {
+                "routeRefresh": {}
+              },
+              {
+                "fourOctetAsn": {
+                  "asn": 65000
+                }
+              }
+            ],
+            "routerId": "192.0.2.1"
+          },
+          "transport": {
+            "localAddress": "192.0.2.10",
+            "localPort": 179,
+            "remotePort": 50000
+          }
+        }
+      }
+    }
+  },
+  "begin": {
+    "topic": "network.bgpls.raw",
+    "key": "local",
+    "headers": {
+      "content-type": "application/json",
+      "serializer": "protojson",
+      "schema": "api.WatchEventResponse",
+      "sink": "bgpls",
+      "gobgp-version": "4.9.0",
+      "source": "",
+      "event-type": "snapshot",
+      "observed-at": "2026-10-04T12:00:00Z",
+      "event-id": "0f4785d7-d0c8-4d7e-88c7-0a10f8e6d12a",
+      "stream-id": "33333333-3333-4333-8333-333333333333",
+      "snapshot-id": "44444444-4444-4444-8444-444444444444",
+      "snapshot-phase": "begin",
+      "collector-id": "edge-router-01",
+      "spool-sequence": "10000"
+    },
+    "value": {}
+  },
+  "end": {
+    "topic": "network.bgpls.raw",
+    "key": "local",
+    "headers": {
+      "content-type": "application/json",
+      "serializer": "protojson",
+      "schema": "api.WatchEventResponse",
+      "sink": "bgpls",
+      "gobgp-version": "4.9.0",
+      "source": "",
+      "event-type": "snapshot",
+      "observed-at": "2026-10-04T12:00:00Z",
+      "event-id": "28a8fa36-2bd1-4702-b293-6a1fef02b2a4",
+      "stream-id": "33333333-3333-4333-8333-333333333333",
+      "snapshot-id": "44444444-4444-4444-8444-444444444444",
+      "snapshot-phase": "end",
+      "collector-id": "edge-router-01",
+      "snapshot-records": "3",
+      "spool-sequence": "10004"
+    },
+    "value": {}
+  },
+  "failed": {
+    "topic": "network.bgpls.raw",
+    "key": "local",
+    "headers": {
+      "content-type": "application/json",
+      "serializer": "protojson",
+      "schema": "api.WatchEventResponse",
+      "sink": "bgpls",
+      "gobgp-version": "4.9.0",
+      "source": "",
+      "event-type": "snapshot",
+      "observed-at": "2026-10-04T12:00:00Z",
+      "event-id": "641adad0-8698-4322-a2a2-4390252eb184",
+      "stream-id": "33333333-3333-4333-8333-333333333333",
+      "snapshot-id": "44444444-4444-4444-8444-444444444444",
+      "snapshot-phase": "failed",
+      "collector-id": "edge-router-01",
+      "snapshot-records": "2",
+      "spool-sequence": "10003"
+    },
+    "value": {}
+  }
+}

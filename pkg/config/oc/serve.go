@@ -8,9 +8,12 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
+
+	kafkaconfig "github.com/osrg/gobgp/v4/pkg/config/kafka"
 )
 
 type BgpConfigSet struct {
+	Kafka             kafkaconfig.Config `mapstructure:"kafka"`
 	Global            Global             `mapstructure:"global"`
 	Neighbors         []Neighbor         `mapstructure:"neighbors"`
 	PeerGroups        []PeerGroup        `mapstructure:"peer-groups"`
@@ -43,7 +46,7 @@ func ReadConfig(r io.Reader, format string) (*BgpConfigSet, error) {
 	var err error
 
 	config := &BgpConfigSet{}
-	opts := viper.DecodeHook(mapstructure.ComposeDecodeHookFunc(integerRangeHookFunc(), mapstructure.StringToNetIPAddrHookFunc(), mapstructure.StringToNetIPPrefixHookFunc()))
+	opts := viper.DecodeHook(mapstructure.ComposeDecodeHookFunc(integerRangeHookFunc(), mapstructure.StringToTimeDurationHookFunc(), mapstructure.StringToNetIPAddrHookFunc(), mapstructure.StringToNetIPPrefixHookFunc()))
 
 	v := viper.New()
 	v.SetConfigType(format)
@@ -60,6 +63,9 @@ func ReadConfig(r io.Reader, format string) (*BgpConfigSet, error) {
 		return nil, err
 	}
 
+	if err := config.Kafka.Normalize(); err != nil {
+		return nil, err
+	}
 	return config, nil
 }
 

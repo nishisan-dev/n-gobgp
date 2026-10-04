@@ -1,0 +1,83 @@
+global:
+  config:
+    as: 65000
+    router-id: 192.0.2.1
+
+kafka:
+  enabled: true
+  spoolDir: /var/lib/gobgp/kafka
+  collectorId: edge-router-01
+  ingressQueueSize: 4096
+  shutdownTimeout: 10s
+
+  defaults:
+    queue:
+      size: 4096
+      onFull: drop
+    spool:
+      maxBytes: 1073741824
+      failOnError: false
+    producer:
+      batchMaxBytes: 1048576
+      linger: 10ms
+      maxBufferedRecords: 10000
+      maxBufferedBytes: 67108864
+      deliveryTimeout: 30s
+
+  clusters:
+    primary:
+      brokers: [kafka01:9092, kafka02:9092]
+      # tls:
+      #   enabled: true
+      #   caFile: /etc/gobgp/kafka-ca.pem
+      #   certFile: /etc/gobgp/kafka-client.pem
+      #   keyFile: /etc/gobgp/kafka-client.key
+      # sasl:
+      #   mechanism: SCRAM-SHA-512
+      #   usernameEnv: KAFKA_USERNAME
+      #   passwordEnv: KAFKA_PASSWORD
+    analytics:
+      brokers: [kafka-analytics01:9092]
+
+  sinks:
+    bgp-raw:
+      enabled: true
+      cluster: primary
+      topic: network.bgp.raw
+      format: protojson
+      key:
+        strategy: peer
+      match:
+        eventTypes:
+          include: [route, withdraw, peer-state, eor]
+
+    bgpls:
+      initialDump: true
+      replayDestination: original
+      cluster: primary
+      topic: network.bgpls.raw
+      match:
+        eventTypes:
+          include: [route, withdraw]
+        families:
+          include: [bgp-ls]
+        sources:
+          include: [adj-in]
+
+    best-routes:
+      cluster: primary
+      topic: network.bgp.best
+      match:
+        eventTypes:
+          include: [route, withdraw]
+        sources:
+          include: [best]
+        families:
+          include: [ipv4-unicast, ipv6-unicast]
+
+    analytics-copy:
+      cluster: analytics
+      topic: network.bgp.raw
+      match:
+        eventTypes:
+          include: [route, withdraw]

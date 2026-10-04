@@ -28,6 +28,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"reflect"
 	"runtime"
 	"syscall"
 	"time"
@@ -47,6 +48,7 @@ import (
 	"github.com/osrg/gobgp/v4/pkg/config"
 	"github.com/osrg/gobgp/v4/pkg/metrics"
 	"github.com/osrg/gobgp/v4/pkg/server"
+	kafkasink "github.com/osrg/gobgp/v4/pkg/sink/kafka"
 )
 
 var logger = slog.Default()
@@ -253,8 +255,35 @@ func main() {
 	}
 	logger.Info("Finished reading the config file", slog.String("File", opts.ConfigFile))
 
+	kafkaManager, err := kafkasink.New(initialConfig.Kafka, logger, prometheus.DefaultRegisterer)
+	if err != nil {
+		logger.Error("Failed to initialize Kafka event sinks", slog.Any("Error", err))
+		os.Exit(1)
+	}
+	if err := kafkaManager.Start(bgpServer); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), initialConfig.Kafka.ShutdownTimeout)
+		_ = kafkaManager.Close(ctx)
+		cancel()
+		logger.Error("Failed to subscribe Kafka event sinks", slog.Any("Error", err))
+		os.Exit(1)
+	}
+	kafkaClosed := false
+	closeKafka := func() {
+		if kafkaManager == nil || kafkaClosed {
+			return
+		}
+		kafkaClosed = true
+		ctx, cancel := context.WithTimeout(context.Background(), initialConfig.Kafka.ShutdownTimeout)
+		defer cancel()
+		if err := kafkaManager.Close(ctx); err != nil {
+			logger.Warn("Kafka shutdown ended with pending durable records", slog.Any("Error", err))
+		}
+	}
+	defer closeKafka()
+
 	currentConfig, err := config.InitialConfig(context.Background(), bgpServer, initialConfig, opts.GracefulRestart)
 	if err != nil {
+		closeKafka()
 		logger.Error("Failed to apply initial configuration", slog.String("File", opts.ConfigFile), slog.String("Error", err.Error()))
 		os.Exit(1)
 	}
@@ -278,6 +307,7 @@ func main() {
 
 	for sig := range sigCh {
 		if sig != syscall.SIGHUP {
+			closeKafka()
 			stopServer(bgpServer, opts.UseSdNotify)
 			return
 		}
@@ -289,6 +319,11 @@ func main() {
 			logger.Warn("Can't read config file", slog.String("File", opts.ConfigFile), slog.String("Error", err.Error()))
 			continue
 		}
+
+		if !reflect.DeepEqual(initialConfig.Kafka, newConfig.Kafka) {
+			logger.Warn("Kafka configuration changes require a restart; keeping the active Kafka configuration")
+		}
+		newConfig.Kafka = initialConfig.Kafka
 
 		currentConfig, err = config.UpdateConfig(context.Background(), bgpServer, currentConfig, newConfig)
 		if err != nil {
