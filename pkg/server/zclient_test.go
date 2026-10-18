@@ -16,6 +16,7 @@
 package server
 
 import (
+	"io"
 	"log/slog"
 	"math"
 	"net/netip"
@@ -25,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/osrg/gobgp/v4/internal/pkg/table"
+	"github.com/osrg/gobgp/v4/pkg/config/oc"
 	"github.com/osrg/gobgp/v4/pkg/packet/bgp"
 	"github.com/osrg/gobgp/v4/pkg/zebra"
 )
@@ -70,7 +72,7 @@ func Test_newPathFromIPRouteMessage(t *testing.T) {
 		logger := slog.Default()
 		zebra.BackwardIPv6RouteDelete.ToEach(v, software)
 		path := newPathFromIPRouteMessage(logger, m, v, software)
-		pp := table.NewPath(bgp.RF_IPv4_UC, nil, bgp.PathNLRI{NLRI: path.GetNlri()}, path.IsWithdraw, path.GetPathAttrs(), time.Now(), false)
+		pp := table.NewPath(bgp.RF_IPv4_UC, nil, bgp.PathNLRI{NLRI: path.GetNlri()}, path.IsWithdraw, path.GetFullPathAttrs(), time.Now(), false)
 		pp.SetIsFromExternal(path.IsFromExternal())
 		assert.Equal("0.0.0.0", pp.GetNexthop().String())
 		assert.Equal("192.168.100.0/24", pp.GetNlri().String())
@@ -84,7 +86,7 @@ func Test_newPathFromIPRouteMessage(t *testing.T) {
 		m.Body = b
 
 		path = newPathFromIPRouteMessage(logger, m, v, software)
-		pp = table.NewPath(bgp.RF_IPv4_UC, nil, bgp.PathNLRI{NLRI: path.GetNlri()}, path.IsWithdraw, path.GetPathAttrs(), time.Now(), false)
+		pp = table.NewPath(bgp.RF_IPv4_UC, nil, bgp.PathNLRI{NLRI: path.GetNlri()}, path.IsWithdraw, path.GetFullPathAttrs(), time.Now(), false)
 		pp.SetIsFromExternal(path.IsFromExternal())
 		assert.Equal("0.0.0.0", pp.GetNexthop().String())
 		assert.Equal("192.168.100.0/24", pp.GetNlri().String())
@@ -109,7 +111,7 @@ func Test_newPathFromIPRouteMessage(t *testing.T) {
 		m.Body = b
 
 		path = newPathFromIPRouteMessage(logger, m, v, software)
-		pp = table.NewPath(bgp.RF_IPv6_UC, nil, bgp.PathNLRI{NLRI: path.GetNlri()}, path.IsWithdraw, path.GetPathAttrs(), time.Now(), false)
+		pp = table.NewPath(bgp.RF_IPv6_UC, nil, bgp.PathNLRI{NLRI: path.GetNlri()}, path.IsWithdraw, path.GetFullPathAttrs(), time.Now(), false)
 		pp.SetIsFromExternal(path.IsFromExternal())
 		assert.Equal("::", pp.GetNexthop().String())
 		assert.Equal("2001:db8:0:f101::/64", pp.GetNlri().String())
@@ -131,7 +133,7 @@ func Test_newPathFromIPRouteMessage(t *testing.T) {
 		m.Body = b
 
 		path = newPathFromIPRouteMessage(logger, m, v, software)
-		pp = table.NewPath(bgp.RF_IPv6_UC, nil, bgp.PathNLRI{NLRI: path.GetNlri()}, path.IsWithdraw, path.GetPathAttrs(), time.Now(), false)
+		pp = table.NewPath(bgp.RF_IPv6_UC, nil, bgp.PathNLRI{NLRI: path.GetNlri()}, path.IsWithdraw, path.GetFullPathAttrs(), time.Now(), false)
 		pp.SetIsFromExternal(path.IsFromExternal())
 		assert.Equal("::", pp.GetNexthop().String())
 		assert.Equal("2001:db8:0:f101::/64", pp.GetNlri().String())
@@ -389,4 +391,57 @@ func TestApplyToPathList_WithdrawIgnored(t *testing.T) {
 
 	updated := cache.applyToPathList([]*table.Path{path})
 	assert.Empty(updated, "withdraw paths must be skipped")
+}
+
+func TestNewIPRouteBodyWithdrawsInvalidNexthopPath(t *testing.T) {
+	assert := assert.New(t)
+
+	nlri, _ := bgp.NewIPAddrPrefix(netip.MustParsePrefix("10.3.1.0/24"))
+	nh, _ := bgp.NewPathAttributeNextHop(testNextHop)
+	attrs := []bgp.PathAttributeInterface{
+		bgp.NewPathAttributeOrigin(bgp.BGP_ORIGIN_ATTR_TYPE_INCOMPLETE),
+		nh,
+	}
+	path := table.NewPath(bgp.RF_IPv4_UC, nil, bgp.PathNLRI{NLRI: nlri}, false, attrs, time.Now(), false)
+	path.IsNexthopInvalid = true
+	path = path.Clone(true)
+	z := &zebraClient{
+		client: &zebra.Client{
+			Version:  zebra.MaxZapiVer,
+			Software: zebra.NewSoftware(zebra.MaxZapiVer, "frr8.2"),
+		},
+		pathVrfMap: make(map[*table.Path]uint32),
+	}
+
+	body, isWithdraw := newIPRouteBody([]*table.Path{path}, zebra.DefaultVrf, z)
+
+	assert.NotNil(body)
+	assert.True(isWithdraw)
+	assert.Equal(netip.MustParseAddr("10.3.1.0"), body.Prefix.Prefix)
+	assert.Equal(uint8(24), body.Prefix.PrefixLen)
+}
+
+// globalRibOptions reads the live table manager, so a client created before
+// StartBgp picks up the options once the RIB exists. It must take the server
+// state lock: StartBgp replaces the table manager from the management
+// dispatcher while the zebra client runs in its own goroutine.
+func TestZebraClientGlobalRibOptions(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	s := &BgpServer{shared: newSharedData(), logger: logger}
+	z := &zebraClient{server: s}
+
+	// Before StartBgp there is no table manager.
+	selection, multiPaths := z.globalRibOptions()
+	assert.Equal(t, oc.RouteSelectionOptionsConfig{}, selection)
+	assert.False(t, multiPaths.Enabled)
+
+	want := oc.RouteSelectionOptionsConfig{AlwaysCompareMed: true}
+	s.shared.mu.Lock()
+	s.globalRib = table.NewTableManager(logger, []bgp.Family{bgp.RF_IPv4_UC},
+		want, oc.UseMultiplePathsConfig{Enabled: true})
+	s.shared.mu.Unlock()
+
+	selection, multiPaths = z.globalRibOptions()
+	assert.Equal(t, want, selection)
+	assert.True(t, multiPaths.Enabled)
 }

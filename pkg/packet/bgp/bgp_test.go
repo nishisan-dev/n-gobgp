@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -26,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,6 +61,15 @@ func BenchmarkNormalizeFlowSpecOpValues(b *testing.B) {
 
 func Test_Message(t *testing.T) {
 	l := []*BGPMessage{keepalive(), notification(), refresh(), NewTestBGPOpenMessage(), NewTestBGPUpdateMessage()}
+	// One UPDATE per family, since an UPDATE carries one MP_REACH_NLRI.
+	for _, mp := range newTestMpReachNLRIs() {
+		attrs := []PathAttributeInterface{
+			NewPathAttributeOrigin(0),
+			NewPathAttributeAsPath(nil),
+			mp,
+		}
+		l = append(l, NewBGPUpdateMessage(nil, attrs, nil))
+	}
 
 	for _, m1 := range l {
 		buf1, err := m1.Serialize()
@@ -760,6 +771,33 @@ func Test_RFC5512(t *testing.T) {
 	assert.Equal("2001::1", n4.String())
 }
 
+func Test_EncapNLRIEndpointClampedToLength(t *testing.T) {
+	assert := assert.New(t)
+
+	// Two Encap NLRIs packed in one MP_REACH, which RFC 5512 allows. Each
+	// carries a 32-bit (IPv4) endpoint, so the first must decode as 10.0.0.1
+	// and the second as 10.0.0.2 rather than the first absorbing the rest.
+	n1, _ := NewEncapNLRI(netip.MustParseAddr("10.0.0.1"))
+	n2, _ := NewEncapNLRI(netip.MustParseAddr("10.0.0.2"))
+	mp, err := NewPathAttributeMpReachNLRI(RF_IPv4_ENCAP, []PathNLRI{{NLRI: n1}, {NLRI: n2}}, netip.MustParseAddr("192.0.2.1"))
+	assert.NoError(err)
+	buf, err := mp.Serialize()
+	assert.NoError(err)
+
+	p := &PathAttributeMpReachNLRI{}
+	assert.NoError(p.DecodeFromBytes(buf))
+	assert.Len(p.Value, 2)
+	assert.Equal("10.0.0.1", p.Value[0].NLRI.String())
+	assert.Equal("10.0.0.2", p.Value[1].NLRI.String())
+
+	// A 32-bit length octet followed by the 4-byte endpoint plus trailing
+	// sibling bytes decodes to just the endpoint, ignoring the trailing bytes.
+	trailing := []byte{net.IPv4len * 8, 10, 0, 0, 1, 0xde, 0xad, 0xbe, 0xef}
+	nl, err := NLRIFromSlice(RF_IPv4_ENCAP, trailing)
+	assert.NoError(err)
+	assert.Equal("10.0.0.1", nl.String())
+}
+
 func Test_ASLen(t *testing.T) {
 	assert := assert.New(t)
 
@@ -920,6 +958,107 @@ func Test_FlowSpecNlriComponentsClampedToDeclaredLength(t *testing.T) {
 	assert.LessOrEqual(nlri.Len(), 1+(declared-1))
 }
 
+func Test_FlowSpecNlriLengthEncodingBoundary(t *testing.T) {
+	tests := []struct {
+		name          string
+		payloadLength int
+		headerLength  int
+		header        []byte
+	}{
+		{
+			name:          "one-octet",
+			payloadLength: 239,
+			headerLength:  1,
+			header:        []byte{0xef},
+		},
+		{
+			name:          "two-octet",
+			payloadLength: 240,
+			headerLength:  2,
+			header:        []byte{0xf0, 0xf0},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := make([]byte, tt.payloadLength)
+			payload[0] = 0xfe
+			for i := 1; i < len(payload); i++ {
+				payload[i] = byte(i)
+			}
+			nlri := &FlowSpecNLRI{
+				Value: []FlowSpecComponentInterface{&FlowSpecUnknown{Value: payload}},
+				rf:    RF_FS_IPv4_UC,
+			}
+
+			buf, err := nlri.Serialize()
+			require.NoError(t, err)
+			require.Len(t, buf, tt.headerLength+tt.payloadLength)
+			assert.Equal(t, tt.header, buf[:tt.headerLength])
+			assert.Equal(t, payload, buf[tt.headerLength:])
+
+			decoded, err := NLRIFromSlice(RF_FS_IPv4_UC, buf)
+			require.NoError(t, err)
+			roundTrip, err := decoded.Serialize()
+			require.NoError(t, err)
+			assert.Equal(t, buf, roundTrip)
+		})
+	}
+}
+
+// RFC 8955 allows the 2-octet length form for a length below 240. The
+// NLRI after it must still be framed correctly, and the form must be
+// kept so that Len() matches the serialized bytes.
+func Test_FlowSpecNlriTwoOctetShortLength(t *testing.T) {
+	rd := []byte{0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 0x64}
+	tests := []struct {
+		name   string
+		family Family
+		first  []byte
+		second []byte
+	}{
+		{
+			name:   "ipv4",
+			family: RF_FS_IPv4_UC,
+			// protocol == tcp, then protocol == udp
+			first:  []byte{0xf0, 0x03, 0x03, 0x81, 0x06},
+			second: []byte{0x03, 0x03, 0x81, 0x11},
+		},
+		{
+			name:   "ipv4-vpn",
+			family: RF_FS_IPv4_VPN,
+			first:  append(append([]byte{0xf0, 0x0b}, rd...), 0x03, 0x81, 0x06),
+			second: append(append([]byte{0x0b}, rd...), 0x03, 0x81, 0x11),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			value := binary.BigEndian.AppendUint16(nil, tt.family.Afi())
+			value = append(value, tt.family.Safi())
+			value = append(value, tt.first...)
+			value = append(value, tt.second...)
+			attr := append([]byte{0x90, byte(BGP_ATTR_TYPE_MP_UNREACH_NLRI), 0x00, byte(len(value))}, value...)
+
+			p := &PathAttributeMpUnreachNLRI{}
+			require.NoError(t, p.DecodeFromBytes(attr))
+			require.Len(t, p.Value, 2)
+
+			for i, want := range [][]byte{tt.first, tt.second} {
+				nlri := p.Value[i].NLRI
+				assert.Equal(t, len(want), nlri.Len())
+				buf, err := nlri.Serialize()
+				require.NoError(t, err)
+				assert.Equal(t, want, buf)
+			}
+
+			buf, err := p.Serialize()
+			require.NoError(t, err)
+			assert.Equal(t, attr, buf)
+		})
+	}
+}
+
 func Test_NewFlowSpecComponentItemLength(t *testing.T) {
 	item := NewFlowSpecComponentItem(0, 0)
 	assert.Equal(t, 1, item.Len())
@@ -1068,6 +1207,26 @@ func Test_UnknownIP6Extended_RoundTrip(t *testing.T) {
 	unknown, ok := e.(*UnknownIP6Extended)
 	require.True(t, ok, "expected *UnknownIP6Extended")
 	assert.Equal(ExtendedCommunityAttrType(0x99), unknown.Type)
+	assert.Equal(raw[1:], unknown.Value)
+
+	serialized, err := unknown.Serialize()
+	require.NoError(t, err)
+	assert.Equal(raw, serialized, "round-trip must be byte-for-byte identical")
+}
+
+func Test_UnknownEvpnExtended_RoundTrip(t *testing.T) {
+	assert := assert.New(t)
+
+	// EVPN Extended Community with a Sub-Type this package does not parse
+	// (0x08, ARP/ND, RFC 9047), Router flag set.
+	raw := []byte{0x06, 0x08, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}
+
+	e, err := ParseExtended(raw)
+	require.NoError(t, err)
+
+	unknown, ok := e.(*UnknownExtended)
+	require.True(t, ok, "expected *UnknownExtended")
+	assert.Equal(EC_TYPE_EVPN, unknown.Type)
 	assert.Equal(raw[1:], unknown.Value)
 
 	serialized, err := unknown.Serialize()
@@ -1788,18 +1947,99 @@ func Test_MpReachNLRIWithIPv6PrefixWithIPv4Peering(t *testing.T) {
 	assert.Equal(uint16(0x1e), p.Length)
 	assert.Equal(uint16(AFI_IP6), p.AFI)
 	assert.Equal(uint8(SAFI_UNICAST), p.SAFI)
-	assert.Equal(netip.MustParseAddr("::ffff:172.20.0.1"), p.Nexthop)
+	assert.Equal(netip.MustParseAddr("172.20.0.1"), p.Nexthop)
 	assert.False(p.LinkLocalNexthop.IsValid())
 	nlri, _ := NewIPAddrPrefix(netip.MustParsePrefix("2001:db8:1:1::/64"))
 	value := []PathNLRI{{NLRI: nlri}}
 	assert.Equal(value, p.Value)
-	// Set NextHop as IPv4 address (because IPv4 peering)
-	p.Nexthop = netip.MustParseAddr("172.20.0.1")
 	// Test Serialize()
 	bufout, err := p.Serialize()
 	assert.NoError(err)
 	// Test serialised value
 	assert.Equal(bufin, bufout)
+}
+
+func Test_IPv4MappedNexthopIsUnmapped(t *testing.T) {
+	assert := assert.New(t)
+
+	// IPv4 unicast with the 16-octet next hop field holding "::ffff:10.0.0.1",
+	// which is the IPv4 address 10.0.0.1 (RFC 4291 Section 2.5.5.2).
+	bufin := []byte{
+		0x80, 0x0e, 0x19, // flags(1), type(1), length(1)
+		0x00, 0x01, 0x01, 0x10, // afi(2), safi(1), nexthoplen(1)
+		0x00, 0x00, 0x00, 0x00, // nexthop(16)
+		0x00, 0x00, 0x00, 0x00, // = "::ffff:10.0.0.1"
+		0x00, 0x00, 0xff, 0xff,
+		0x0a, 0x00, 0x00, 0x01,
+		0x00,                   // reserved(1)
+		0x18, 0x0a, 0x0a, 0x00, // nlri(4) = "10.10.0.0/24"
+	}
+	p := &PathAttributeMpReachNLRI{}
+	assert.NoError(p.DecodeFromBytes(bufin))
+	assert.Equal(netip.MustParseAddr("10.0.0.1"), p.Nexthop)
+	// The next hop goes back out in the 4-octet form that the family uses.
+	bufout, err := p.Serialize()
+	assert.NoError(err)
+	assert.Equal([]byte{
+		0x80, 0x0e, 0x0d, // flags(1), type(1), length(1)
+		0x00, 0x01, 0x01, 0x04, // afi(2), safi(1), nexthoplen(1)
+		0x0a, 0x00, 0x00, 0x01, // nexthop(4) = "10.0.0.1"
+		0x00,                   // reserved(1)
+		0x18, 0x0a, 0x0a, 0x00, // nlri(4) = "10.10.0.0/24"
+	}, bufout)
+
+	// VPN-IPv4 with the route distinguisher followed by the same mapped
+	// address, which is the 24-octet VPN-IPv6 next hop length.
+	bufin = []byte{
+		0x80, 0x0e, 0x2c, // flags(1), type(1), length(1)
+		0x00, 0x01, 0x80, 0x18, // afi(2), safi(1), nexthoplen(1)
+		0x00, 0x00, 0x00, 0x00, // nexthop(24)
+		0x00, 0x00, 0x00, 0x00, // = (rd:"0:0",) "::ffff:172.20.0.1"
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0xff, 0xff,
+		0xac, 0x14, 0x00, 0x01,
+		0x00,                   // reserved(1)
+		0x70, 0x00, 0x01, 0x01, // nlri(15)
+		0x00, 0x00, 0xfd, 0xe8, // = label:16, rd:"65000:100", prefix:"10.1.1.0/24"
+		0x00, 0x00, 0x00, 0x64,
+		0x0a, 0x01, 0x01,
+	}
+	p = &PathAttributeMpReachNLRI{}
+	assert.NoError(p.DecodeFromBytes(bufin))
+	assert.Equal(netip.MustParseAddr("172.20.0.1"), p.Nexthop)
+	bufout, err = p.Serialize()
+	assert.NoError(err)
+	assert.Equal([]byte{
+		0x80, 0x0e, 0x20, // flags(1), type(1), length(1)
+		0x00, 0x01, 0x80, 0x0c, // afi(2), safi(1), nexthoplen(1)
+		0x00, 0x00, 0x00, 0x00, // nexthop(12)
+		0x00, 0x00, 0x00, 0x00, // = (rd:"0:0",) "172.20.0.1"
+		0xac, 0x14, 0x00, 0x01,
+		0x00,                   // reserved(1)
+		0x70, 0x00, 0x01, 0x01, // nlri(15)
+		0x00, 0x00, 0xfd, 0xe8, // = label:16, rd:"65000:100", prefix:"10.1.1.0/24"
+		0x00, 0x00, 0x00, 0x64,
+		0x0a, 0x01, 0x01,
+	}, bufout)
+
+	// The NEXT_HOP attribute takes a 16-octet value as well.
+	bufin = []byte{
+		0x40, 0x03, 0x10, // flags(1), type(1), length(1)
+		0x00, 0x00, 0x00, 0x00, // value(16)
+		0x00, 0x00, 0x00, 0x00, // = "::ffff:192.0.2.1"
+		0x00, 0x00, 0xff, 0xff,
+		0xc0, 0x00, 0x02, 0x01,
+	}
+	nh := &PathAttributeNextHop{}
+	assert.NoError(nh.DecodeFromBytes(bufin))
+	assert.Equal(netip.MustParseAddr("192.0.2.1"), nh.Value)
+	bufout, err = nh.Serialize()
+	assert.NoError(err)
+	assert.Equal([]byte{
+		0x40, 0x03, 0x04, // flags(1), type(1), length(1)
+		0xc0, 0x00, 0x02, 0x01, // value(4) = "192.0.2.1"
+	}, bufout)
 }
 
 func Test_MpReachNLRIWithIPv6(t *testing.T) {
@@ -2286,6 +2526,54 @@ func TestUpdatePathAttrLenUnderflow(t *testing.T) {
 	u := &BGPUpdate{}
 	err := u.DecodeFromBytes(buf)
 	require.Error(t, err)
+}
+
+func TestUpdateRepeatedMpAttribute(t *testing.T) {
+	// ORIGIN: IGP
+	origin := []byte{0x40, 0x01, 0x01, 0x00}
+	// AS_PATH: empty
+	aspath := []byte{0x40, 0x02, 0x00}
+	// MP_REACH_NLRI: 10.3.3.0/24 via 10.0.0.1
+	mpReach := []byte{0x80, 0x0e, 0x0d, 0x00, 0x01, 0x01, 0x04, 0x0a, 0x00, 0x00, 0x01, 0x00, 0x18, 0x0a, 0x03, 0x03}
+	// MP_UNREACH_NLRI: 10.1.1.0/24 and 10.2.2.0/24
+	mpUnreach1 := []byte{0x80, 0x0f, 0x07, 0x00, 0x01, 0x01, 0x18, 0x0a, 0x01, 0x01}
+	mpUnreach2 := []byte{0x80, 0x0f, 0x07, 0x00, 0x01, 0x01, 0x18, 0x0a, 0x02, 0x02}
+	// MP_UNREACH_NLRI with the Optional bit cleared: a flags error
+	badFlags := []byte{0x60, 0x0f, 0x04, 0x11, 0x22, 0x33, 0x44}
+	// ORIGIN with a bad length: treat-as-withdraw
+	badOrigin := []byte{0x40, 0x01, 0x02, 0x00, 0x00}
+
+	tests := []struct {
+		name  string
+		attrs [][]byte
+		reset bool
+	}{
+		{"MpReachAndMpUnreach", [][]byte{origin, aspath, mpReach, mpUnreach1}, false},
+		{"MpUnreachTwice", [][]byte{origin, aspath, mpUnreach1, mpUnreach2}, true},
+		{"MpReachTwice", [][]byte{origin, aspath, mpReach, mpReach}, true},
+		{"FirstMpUnreachMalformed", [][]byte{origin, aspath, badFlags, mpUnreach2}, true},
+		{"TreatAsWithdrawThenMpUnreachTwice", [][]byte{badOrigin, aspath, mpUnreach1, mpUnreach2}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			attrs := slices.Concat(tt.attrs...)
+			buf := append([]byte{0x00, 0x00, byte(len(attrs) >> 8), byte(len(attrs))}, attrs...)
+
+			u := &BGPUpdate{}
+			err := u.DecodeFromBytes(buf)
+			if !tt.reset {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			e := err.(*MessageError)
+			assert.Equal(t, uint8(BGP_ERROR_UPDATE_MESSAGE_ERROR), e.TypeCode)
+			assert.Equal(t, uint8(BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST), e.SubTypeCode)
+			assert.Equal(t, ERROR_HANDLING_SESSION_RESET, e.ErrorHandling)
+			// Decoding goes on after the repeat.
+			assert.Len(t, u.PathAttributes, len(tt.attrs))
+		})
+	}
 }
 
 func TestCapFQDNRoundTrip(t *testing.T) {
@@ -7346,4 +7634,67 @@ func TestParseBodyRouteRefreshLengthError(t *testing.T) {
 	require.ErrorAs(t, err, &me)
 	require.Equal(t, uint8(BGP_ERROR_ROUTE_REFRESH_MESSAGE_ERROR), me.TypeCode)
 	require.Equal(t, uint8(BGP_ERROR_SUB_INVALID_MESSAGE_LENGTH), me.SubTypeCode)
+}
+
+type layoutTestCommunity struct {
+	ExtendedCommunityInterface
+	value []byte
+	err   error
+}
+
+func (c layoutTestCommunity) Serialize() ([]byte, error) { return c.value, c.err }
+
+func TestEVPNIPMSISerializeInvalidCommunity(t *testing.T) {
+	wantErr := errors.New("serialization failed")
+	for _, tc := range []struct {
+		name string
+		ec   layoutTestCommunity
+	}{
+		{"short", layoutTestCommunity{value: make([]byte, 7)}},
+		{"long", layoutTestCommunity{value: make([]byte, 9)}},
+		{"error", layoutTestCommunity{err: wantErr}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := (&EVPNIPMSIRoute{EC: tc.ec}).Serialize()
+			if err == nil || got != nil {
+				t.Fatalf("got %x, err %v; want no output and an error", got, err)
+			}
+			if tc.ec.err != nil && !errors.Is(err, wantErr) {
+				t.Fatalf("serialization error lost: %v", err)
+			}
+		})
+	}
+}
+
+func TestEVPNIPMSISerializeLayout(t *testing.T) {
+	route := &EVPNIPMSIRoute{
+		RD:   NewRouteDistinguisherTwoOctetAS(65000, 42),
+		ETag: 7,
+		EC:   NewTwoOctetAsSpecificExtended(EC_SUBTYPE_ROUTE_TARGET, 65000, 123, true),
+	}
+	want := []byte{
+		0, 0, 0xfd, 0xe8, 0, 0, 0, 42, // RD
+		0, 0, 0, 7, // Ethernet tag
+		0, 2, 0xfd, 0xe8, 0, 0, 0, 123, // Extended community
+	}
+	for _, nilRD := range []bool{false, true} {
+		if nilRD {
+			route.RD = nil
+			clear(want[:8])
+		}
+		got, err := route.Serialize()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) || len(got) != route.Len() {
+			t.Fatalf("nilRD=%v: got %x (Len=%d), want %x", nilRD, got, route.Len(), want)
+		}
+		var decoded EVPNIPMSIRoute
+		if err := decoded.DecodeFromBytes(got); err != nil {
+			t.Fatal(err)
+		}
+		if decoded.ETag != route.ETag || decoded.EC.String() != route.EC.String() {
+			t.Fatalf("round-trip changed route: %s", decoded.String())
+		}
+	}
 }

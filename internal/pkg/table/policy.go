@@ -1103,14 +1103,26 @@ func anchoredBody(s string) (body string, ok bool) {
 	return s[1 : len(s)-1], true
 }
 
+// parseDecimal parses s only if it is the text that a community value is
+// formatted to. strconv.ParseUint also accepts a leading zero, but the
+// regexp side compares against "ASN:local" with no leading zero, so a
+// pattern such as ^065001:7$ must stay on the regexp.
+func parseDecimal(s string, bitSize int) (uint64, bool) {
+	if len(s) > 1 && s[0] == '0' {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(s, 10, bitSize)
+	return n, err == nil
+}
+
 func parseExactASColonLocal(body string, localBits int) (asn uint16, local uint32, ok bool) {
 	idx := strings.IndexByte(body, ':')
 	if idx <= 0 || idx != strings.LastIndexByte(body, ':') {
 		return 0, 0, false
 	}
-	asn64, err1 := strconv.ParseUint(body[:idx], 10, 16)
-	loc64, err2 := strconv.ParseUint(body[idx+1:], 10, localBits)
-	if err1 != nil || err2 != nil {
+	asn64, ok1 := parseDecimal(body[:idx], 16)
+	loc64, ok2 := parseDecimal(body[idx+1:], localBits)
+	if !ok1 || !ok2 {
 		return 0, 0, false
 	}
 	return uint16(asn64), uint32(loc64), true
@@ -1122,24 +1134,32 @@ func isWildcardASN(lhs string) bool {
 
 func isWildcardLocal(s string) bool {
 	s = strings.TrimSuffix(s, "$")
-	return strings.HasSuffix(s, `:\d+`) || strings.HasSuffix(s, `:[0-9]+`) || strings.HasSuffix(s, `:.*`)
+	// The wildcard tail must hold the only colon: the fixed-AS matcher it
+	// promotes to ignores the local-admin part, so a pattern with a second
+	// colon (for example ^65001:\d+:\d+) describes a community a one-colon
+	// asn:local value can never match and has to stay on the regexp.
+	for _, tail := range []string{`:\d+`, `:[0-9]+`, `:.*`} {
+		if prefix, found := strings.CutSuffix(s, tail); found {
+			return !strings.ContainsRune(prefix, ':')
+		}
+	}
+	return false
 }
 
 func parseLocalAdminSet(rhs string) (*localAdminBitmap, bool) {
-	rhs = strings.TrimSpace(rhs)
 	var locals []uint16
 	switch {
 	case strings.HasPrefix(rhs, "(") && strings.HasSuffix(rhs, ")"):
 		for _, tok := range strings.Split(rhs[1:len(rhs)-1], "|") {
-			n, err := strconv.ParseUint(strings.TrimSpace(tok), 10, 16)
-			if err != nil {
+			n, ok := parseDecimal(tok, 16)
+			if !ok {
 				return nil, false
 			}
 			locals = append(locals, uint16(n))
 		}
 	default:
-		n, err := strconv.ParseUint(rhs, 10, 16)
-		if err != nil {
+		n, ok := parseDecimal(rhs, 16)
+		if !ok {
 			return nil, false
 		}
 		locals = []uint16{uint16(n)}
@@ -1208,8 +1228,8 @@ func extractLiteralASN(s string) (uint16, bool) {
 	if idx <= 0 {
 		return 0, false
 	}
-	asn, err := strconv.ParseUint(s[start:start+idx], 10, 16)
-	return uint16(asn), err == nil
+	asn, ok := parseDecimal(s[start:start+idx], 16)
+	return uint16(asn), ok
 }
 
 func compileCommunityMatcher(re *regexp.Regexp, listIndex int) communityMatcher {
@@ -2014,12 +2034,6 @@ func (c *PrefixCondition) Option() MatchOption {
 // If PrefixList's length is zero, return true.
 func (c *PrefixCondition) Evaluate(path *Path, _ *PolicyOptions) bool {
 	pathRf := path.GetFamily()
-	pathAfi := pathRf.Afi()
-	cAfi := c.set.family.Afi()
-
-	if cAfi != pathAfi {
-		return false
-	}
 	// RTC shares AFI_IP with IPv4-UC; only match RTC sets against RTC paths.
 	if bool(c.set.family == bgp.RF_RTC_UC) != bool(pathRf == bgp.RF_RTC_UC) {
 		return false
@@ -2029,6 +2043,13 @@ func (c *PrefixCondition) Evaluate(path *Path, _ *PolicyOptions) bool {
 	if !r.IsValid() {
 		return false
 	}
+
+	// An RTC key is AS+RT encoded as a 16-byte address, not an IP prefix, so
+	// it has no AFI to compare.
+	if c.set.family != bgp.RF_RTC_UC && c.set.family.Afi() != prefixAfi(r) {
+		return false
+	}
+
 	addr := r.Masked().Addr()
 	masklen := uint8(r.Bits())
 	result := false
@@ -2053,6 +2074,13 @@ func (c *PrefixCondition) Evaluate(path *Path, _ *PolicyOptions) bool {
 }
 
 func (c *PrefixCondition) Name() string { return c.set.name }
+
+func prefixAfi(p netip.Prefix) uint16 {
+	if p.Addr().Is4() {
+		return bgp.AFI_IP
+	}
+	return bgp.AFI_IP6
+}
 
 func NewPrefixCondition(c oc.MatchPrefixSet) (*PrefixCondition, error) {
 	if c.PrefixSet == "" {
@@ -3402,7 +3430,9 @@ func NewAsPathPrependAction(action oc.SetAsPathPrepend) (*AsPathPrependAction, e
 }
 
 type NexthopAction struct {
-	value       netip.Addr
+	// nexthops is the address to set when the action has one. It is made
+	// once, so that Apply does not allocate.
+	nexthops    *Nexthops
 	self        bool
 	peerAddress bool
 	unchanged   bool
@@ -3416,12 +3446,12 @@ func (a *NexthopAction) Apply(path *Path, options *PolicyOptions) (*Path, error)
 	switch {
 	case a.self:
 		if options != nil && options.Info != nil && options.Info.LocalAddress.IsValid() {
-			path.SetNexthop(options.Info.LocalAddress)
+			path.setNexthopsShared(options.Info.localAddressNexthops())
 		}
 		return path, nil
 	case a.peerAddress:
 		if options != nil && options.Info != nil && options.Info.Address.IsValid() {
-			path.SetNexthop(options.Info.Address)
+			path.setNexthopsShared(options.Info.addressNexthops())
 		}
 		return path, nil
 	case a.unchanged:
@@ -3430,7 +3460,7 @@ func (a *NexthopAction) Apply(path *Path, options *PolicyOptions) (*Path, error)
 		}
 		return path, nil
 	}
-	path.SetNexthop(a.value)
+	path.setNexthopsShared(a.nexthops)
 	return path, nil
 }
 
@@ -3443,7 +3473,7 @@ func (a *NexthopAction) ToConfig() oc.BgpNextHopType {
 	case a.unchanged:
 		return oc.BgpNextHopType("unchanged")
 	}
-	return oc.BgpNextHopType(a.value.String())
+	return oc.BgpNextHopType(a.nexthops.global.String())
 }
 
 func (a *NexthopAction) String() string {
@@ -3476,7 +3506,7 @@ func NewNexthopAction(c oc.BgpNextHopType) (*NexthopAction, error) {
 		return nil, fmt.Errorf("invalid ip address format: %w", err)
 	}
 	return &NexthopAction{
-		value: addr,
+		nexthops: &Nexthops{global: addr},
 	}, nil
 }
 
@@ -4749,11 +4779,22 @@ func (r *RoutingPolicy) setPeerPolicy(id string, c oc.ApplyPolicy) {
 	}
 }
 
-func (r *RoutingPolicy) SetPeerPolicy(peerId string, c oc.ApplyPolicy) error {
+func (r *RoutingPolicy) SetPeerPolicy(id string, c oc.ApplyPolicy) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.setPeerPolicy(peerId, c)
+	importPolicies, defaultImport, err := r.getAssignmentFromConfig(POLICY_DIRECTION_IMPORT, c)
+	if err != nil {
+		return fmt.Errorf("failed to get %s policy info for %s: %w", POLICY_DIRECTION_IMPORT, id, err)
+	}
+	exportPolicies, defaultExport, err := r.getAssignmentFromConfig(POLICY_DIRECTION_EXPORT, c)
+	if err != nil {
+		return fmt.Errorf("failed to get %s policy info for %s: %w", POLICY_DIRECTION_EXPORT, id, err)
+	}
+	r.setDefaultPolicy(id, POLICY_DIRECTION_IMPORT, defaultImport)
+	r.setPolicy(id, POLICY_DIRECTION_IMPORT, importPolicies)
+	r.setDefaultPolicy(id, POLICY_DIRECTION_EXPORT, defaultExport)
+	r.setPolicy(id, POLICY_DIRECTION_EXPORT, exportPolicies)
 	return nil
 }
 

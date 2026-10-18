@@ -1710,7 +1710,7 @@ func TestNumGoroutineWithAddDeleteNeighbor(t *testing.T) {
 	assert.Equal(num, runtime.NumGoroutine())
 }
 
-func newPeerandInfo(t *testing.T, myAs, as uint32, address string, rib *table.TableManager) *peer {
+func newPeerandInfo(t testing.TB, myAs, as uint32, address string, rib *table.TableManager) *peer {
 	addr := netip.MustParseAddr(address)
 	nConf := &oc.Neighbor{Config: oc.NeighborConfig{PeerAs: as, NeighborAddress: addr}, State: oc.NeighborState{PeerAs: as, NeighborAddress: netip.MustParseAddr(address), RemoteRouterId: addr}}
 	gConf := &oc.Global{Config: oc.GlobalConfig{As: myAs}}
@@ -2914,6 +2914,36 @@ func addVrf(t *testing.T, s *BgpServer, vrfName, rdStr string, importRtsStr []st
 	if err = s.AddVrf(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// A peer is interested in a VPN path only through the Route Targets of the
+// path. An RTC NLRI that carries a Route Origin must not match a VPN path
+// that carries the same Route Origin.
+func TestInterestedInMatchesOnlyRouteTargets(t *testing.T) {
+	rt := bgp.NewTwoOctetAsSpecificExtended(bgp.EC_SUBTYPE_ROUTE_TARGET, 65000, 1, true)
+	origin := bgp.NewTwoOctetAsSpecificExtended(bgp.EC_SUBTYPE_ROUTE_ORIGIN, 65000, 1, true)
+
+	rd, _ := bgp.ParseRouteDistinguisher("65000:1")
+	prefix, _ := bgp.NewLabeledVPNIPAddrPrefix(netip.MustParsePrefix("10.0.0.0/24"), *bgp.NewMPLSLabelStack(100), rd)
+	vpnPath := func(ec bgp.ExtendedCommunityInterface) *table.Path {
+		attrs := []bgp.PathAttributeInterface{
+			bgp.NewPathAttributeOrigin(0),
+			bgp.NewPathAttributeExtendedCommunities([]bgp.ExtendedCommunityInterface{ec}),
+		}
+		return table.NewPath(bgp.RF_IPv4_VPN, &table.PeerInfo{}, bgp.PathNLRI{NLRI: prefix}, false, attrs, time.Now(), false)
+	}
+	rtcPath := func(ec bgp.ExtendedCommunityInterface) *table.Path {
+		attrs := []bgp.PathAttributeInterface{bgp.NewPathAttributeOrigin(0)}
+		nlri := bgp.NewRouteTargetMembershipNLRI(65001, ec)
+		return table.NewPath(bgp.RF_RTC_UC, &table.PeerInfo{}, bgp.PathNLRI{NLRI: nlri}, false, attrs, time.Now(), false)
+	}
+
+	p := &peer{rtmHandler: table.NewRouteTargetMembershipHandler()}
+	p.rtmHandler.SyncAfterImport(rtcPath(origin))
+	assert.False(t, p.interestedIn(vpnPath(origin)))
+
+	p.rtmHandler.SyncAfterImport(rtcPath(rt))
+	assert.True(t, p.interestedIn(vpnPath(rt)))
 }
 
 func TestDoNotReactToDuplicateRTCMemberships(t *testing.T) {
@@ -5119,6 +5149,69 @@ func TestRTCShouldNotAdvertiseVPNRouteWhenRTCIsNotPassImportPolicies(t *testing.
 		"VPN route should not appear at s2 adj-in from s1 after second VPN prefix is added")
 }
 
+func TestRTCShouldNotWithdrawVPNRouteAfterOneRTCWithdraw(t *testing.T) {
+	ctx := context.Background()
+
+	s1 := runNewServer(t, 1, "1.1.1.1", 44179)
+	defer s1.StopBgp(context.Background(), &api.StopBgpRequest{})
+	s2 := runNewServer(t, 1, "2.2.2.2", 55179)
+	defer s2.StopBgp(context.Background(), &api.StopBgpRequest{})
+
+	wgEstablished := newPeerStateWaiter(s1, api.PeerState_SESSION_STATE_ESTABLISHED)
+	if err := peerServers(t, ctx, []*BgpServer{s1, s2}, []oc.AfiSafiType{oc.AFI_SAFI_TYPE_L3VPN_IPV4_UNICAST, oc.AFI_SAFI_TYPE_RTC}); err != nil {
+		t.Fatal(err)
+	}
+	wgEstablished.Wait(t, 10*time.Second)
+
+	assertVpnRouteCountS2AdjIn := func(expected int) bool {
+		count := 0
+		_ = s2.ListPath(apiutil.ListPathRequest{
+			TableType: api.TableType_TABLE_TYPE_ADJ_IN,
+			Family:    bgp.RF_IPv4_VPN,
+			Name:      "127.0.0.1",
+		}, func(_ bgp.NLRI, _ []*apiutil.Path) { count++ })
+		return count == expected
+	}
+
+	rt100 := bgp.NewTwoOctetAsSpecificExtended(bgp.EC_SUBTYPE_ROUTE_TARGET, 100, 100, true)
+	rt200 := bgp.NewTwoOctetAsSpecificExtended(bgp.EC_SUBTYPE_ROUTE_TARGET, 200, 200, true)
+	panh, _ := bgp.NewPathAttributeNextHop(netip.MustParseAddr("3.3.3.3"))
+	attrs := []bgp.PathAttributeInterface{
+		bgp.NewPathAttributeOrigin(0),
+		panh,
+		bgp.NewPathAttributeExtendedCommunities([]bgp.ExtendedCommunityInterface{rt100, rt200}),
+	}
+	rd, _ := bgp.ParseRouteDistinguisher("1:1")
+	labels := bgp.NewMPLSLabelStack(100, 200)
+	prefix1, _ := bgp.NewLabeledVPNIPAddrPrefix(netip.MustParsePrefix("10.30.2.0/24"), *labels, rd)
+	path1, _ := apiutil.NewPath(bgp.RF_IPv4_VPN, prefix1, false, attrs, time.Now())
+	if _, err := s1.AddPath(apiutil.AddPathRequest{Paths: []*apiutil.Path{mustApi2apiutilPath(path1)}}); err != nil {
+		t.Fatal(err)
+	}
+
+	pathRtc1, _ := apiutil.NewPath(bgp.RF_RTC_UC, bgp.NewRouteTargetMembershipNLRI(1, rt100), false, attrs, time.Now())
+	if _, err := s2.AddPath(apiutil.AddPathRequest{Paths: []*apiutil.Path{mustApi2apiutilPath(pathRtc1)}}); err != nil {
+		t.Fatal(err)
+	}
+
+	pathRtc2, _ := apiutil.NewPath(bgp.RF_RTC_UC, bgp.NewRouteTargetMembershipNLRI(1, rt200), false, attrs, time.Now())
+	if _, err := s2.AddPath(apiutil.AddPathRequest{Paths: []*apiutil.Path{mustApi2apiutilPath(pathRtc2)}}); err != nil {
+		t.Fatal(err)
+	}
+
+	require.Eventually(t, func() bool {
+		return assertVpnRouteCountS2AdjIn(1)
+	}, 10*time.Second, 100*time.Millisecond, "timeout waiting for VPN path at s2 adj-in from s1")
+
+	_ = s2.DeletePath(apiutil.DeletePathRequest{
+		Paths: []*apiutil.Path{mustApi2apiutilPath(pathRtc2)},
+	})
+
+	time.Sleep(1 * time.Second)
+
+	assert.True(t, assertVpnRouteCountS2AdjIn(1), "VPN path should still be present at s2 adj-in from s1 after one RTC withdraw")
+}
+
 func TestPerPeerPolicyIsRouteServerOnly(t *testing.T) {
 	for _, rs := range []bool{false, true} {
 		name := "non-rs-client"
@@ -5237,11 +5330,17 @@ func TestDeletePeerDropsPolicyAssignment(t *testing.T) {
 	err = s.DeletePeer(context.Background(), &api.DeletePeerRequest{Address: "127.0.0.1"})
 	assert.NoError(err)
 
-	// Adding the peer back with an apply-policy that does not resolve leaves
-	// the assignment unset. The peer must not inherit what the deleted peer
-	// had.
-	assert.NoError(addPeer("not-defined"))
-	assert.Empty(assignedPolicies())
+	// Deleting the peer must remove both its policies and default actions.
+	for _, dir := range []table.PolicyDirection{table.POLICY_DIRECTION_IMPORT, table.POLICY_DIRECTION_EXPORT} {
+		def, policies, err := s.policy.GetPolicyAssignment("127.0.0.1", dir)
+		require.NoError(t, err)
+		assert.Equal(table.ROUTE_TYPE_NONE, def)
+		assert.Empty(policies)
+	}
+
+	// An unresolved policy now rejects the peer instead of silently leaving
+	// it without an assignment.
+	require.ErrorContains(t, addPeer("not-defined"), "not found policy not-defined")
 }
 
 // startServerWithPassivePeer starts a BgpServer without a TCP listener and
@@ -5797,4 +5896,55 @@ func TestUpdatePeerGroupSkipsDynamicNeighbor(t *testing.T) {
 	}, true)
 	assert.NoError(err)
 	assert.Equal([]string{static}, members)
+}
+
+// Serve runs once per server. A second run would close closeCh twice and
+// would leave the server unusable, because mgmtOperation returns an error as
+// soon as closeCh is closed.
+func TestServeRunsOnce(t *testing.T) {
+	s := NewBgpServer()
+	go s.Serve()
+	require.NoError(t, s.mgmtOperation(func() error { return nil }, false))
+	s.Stop()
+
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		s.Serve()
+	}()
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second Serve did not return")
+	}
+	// The second call must not resurrect the dispatcher.
+	assert.Error(t, s.mgmtOperation(func() error { return nil }, false))
+}
+
+// Two concurrent calls must not both run the dispatcher loop.
+func TestServeConcurrentCallsRunOnce(t *testing.T) {
+	s := NewBgpServer()
+	defer s.Stop()
+
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.Serve()
+		}()
+	}
+	require.NoError(t, s.mgmtOperation(func() error { return nil }, false))
+
+	s.Stop()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		wg.Wait()
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a Serve call did not return")
+	}
 }

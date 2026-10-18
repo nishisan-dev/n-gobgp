@@ -296,12 +296,14 @@ func UpdatePathAggregator4ByteAs(msg *bgp.BGPUpdate) error {
 
 type cage struct {
 	attrsBytes []byte
+	nexthops   Nexthops
 	paths      []*Path
 }
 
-func newCage(b []byte, path *Path) *cage {
+func newCage(b []byte, nexthops Nexthops, path *Path) *cage {
 	return &cage{
 		attrsBytes: b,
+		nexthops:   nexthops,
 		paths:      []*Path{path},
 	}
 }
@@ -337,41 +339,16 @@ type packerMP struct {
 
 type mpCage struct {
 	attrsBytes []byte
-	nhKey      string
+	nexthops   Nexthops
 	paths      []*Path
 }
 
-func newMPCage(b []byte, nhKey string, path *Path) *mpCage {
+func newMPCage(b []byte, nexthops Nexthops, path *Path) *mpCage {
 	return &mpCage{
 		attrsBytes: b,
-		nhKey:      nhKey,
+		nexthops:   nexthops,
 		paths:      []*Path{path},
 	}
-}
-
-func getMPReachNexthops(path *Path) ([]netip.Addr, string) {
-	for _, attr := range path.GetPathAttrs() {
-		if mp, ok := attr.(*bgp.PathAttributeMpReachNLRI); ok {
-			nexthops := make([]netip.Addr, 0, 2)
-			key := ""
-			if mp.Nexthop.IsValid() {
-				nexthops = append(nexthops, mp.Nexthop)
-				key += mp.Nexthop.String()
-			}
-			if mp.LinkLocalNexthop.IsValid() {
-				nexthops = append(nexthops, mp.LinkLocalNexthop)
-				key += "|" + mp.LinkLocalNexthop.String()
-			}
-			return nexthops, key
-		}
-	}
-
-	nexthop := path.GetNexthop()
-	if nexthop.IsValid() {
-		return []netip.Addr{nexthop}, nexthop.String()
-	}
-
-	return nil, ""
 }
 
 func (p *packerMP) add(path *Path) {
@@ -391,33 +368,20 @@ func (p *packerMP) add(path *Path) {
 }
 
 func (p *packer) createMPReachMessage(path *Path, nlris []bgp.PathNLRI) *bgp.BGPMessage {
+	oattrs := path.GetPathAttrs()
+	return p.createMPReachMessageWith(path, oattrs, path.nexthops().list(), nlris)
+}
+
+// createMPReachMessageWith is createMPReachMessage for a caller that
+// already has oattrs (path.GetPathAttrs()) and the next hops of path.
+func (p *packer) createMPReachMessageWith(path *Path, oattrs []bgp.PathAttributeInterface, nexthops []netip.Addr, nlris []bgp.PathNLRI) *bgp.BGPMessage {
 	if len(nlris) == 0 {
 		nlris = []bgp.PathNLRI{{NLRI: path.GetNlri(), ID: p.pathID(path)}}
 	}
-	oattrs := path.GetPathAttrs()
 	attrs := make([]bgp.PathAttributeInterface, 0, len(oattrs)+1)
-	replaced := false
-	for _, a := range oattrs {
-		if a.GetType() == bgp.BGP_ATTR_TYPE_MP_REACH_NLRI {
-			if !replaced {
-				nexthops, _ := getMPReachNexthops(path)
-				// Errors silently ignored to match original behavior.
-				if attr, err := bgp.NewPathAttributeMpReachNLRI(path.GetFamily(), nlris, nexthops...); err == nil {
-					attrs = append(attrs, attr)
-					replaced = true
-				} else {
-					attrs = append(attrs, a)
-				}
-			}
-		} else {
-			attrs = append(attrs, a)
-		}
-	}
-	if !replaced {
-		nexthops, _ := getMPReachNexthops(path)
-		if attr, err := bgp.NewPathAttributeMpReachNLRI(path.GetFamily(), nlris, nexthops...); err == nil {
-			attrs = append(attrs, attr)
-		}
+	attrs = append(attrs, oattrs...)
+	if attr, err := bgp.NewPathAttributeMpReachNLRI(path.GetFamily(), nlris, nexthops...); err == nil {
+		attrs = insertPathAttr(attrs, attr)
 	}
 	return bgp.NewBGPUpdateMessage(nil, attrs, nil)
 }
@@ -477,71 +441,69 @@ func (p *packerMP) pack(options ...*bgp.MarshallingOption) []*bgp.BGPMessage {
 		msgs = append(msgs, bgp.NewBGPUpdateMessage(nil, []bgp.PathAttributeInterface{unreach}, nil))
 	})
 
-	hashmap := make(map[uint64][]*mpCage)
-	for _, path := range p.paths {
-		_, nhKey := getMPReachNexthops(path)
-		attrsB := bytes.NewBuffer(make([]byte, 0))
-		for _, v := range path.GetPathAttrs() {
-			if v.GetType() == bgp.BGP_ATTR_TYPE_MP_REACH_NLRI {
-				continue
-			}
-			b, _ := v.Serialize()
-			attrsB.Write(b)
+	// announce packs paths that share the attributes and the next hops.
+	// attrs and nexthops are those of paths[0].
+	announce := func(paths []*Path, attrs []bgp.PathAttributeInterface, nexthops Nexthops) {
+		attrsLen := 0
+		for _, attr := range attrs {
+			attrsLen += attr.Len()
 		}
 
-		h := fnv1a.Init64
-		h = fnv1a.AddBytes64(h, attrsB.Bytes())
-		h = fnv1a.AddString64(h, nhKey)
+		baseReachLen := 19 + 2 + 2 + attrsLen
+		nhs := nexthops.list()
+		sampleNLRI := bgp.PathNLRI{NLRI: paths[0].GetNlri(), ID: p.pathID(paths[0])}
+		if sampleReach, err := bgp.NewPathAttributeMpReachNLRI(paths[0].GetFamily(), []bgp.PathNLRI{sampleNLRI}, nhs...); err == nil {
+			baseReachLen += sampleReach.Len() + 1 - paths[0].GetNlri().Len(options...) // +1 for extended-length attr header
+		} else {
+			baseReachLen = maxUpdateMessageLength(options)
+		}
+		split(baseReachLen, paths, func(nlris []bgp.PathNLRI) {
+			msgs = append(msgs, p.createMPReachMessageWith(paths[0], attrs, nhs, nlris))
+		})
+	}
 
-		if cages, y := hashmap[h]; y {
+	switch len(p.paths) {
+	case 0:
+	case 1:
+		// A single path is a group by itself, so skip serializing its
+		// attributes for grouping.
+		attrs := p.paths[0].GetPathAttrs()
+		announce(p.paths, attrs, p.paths[0].nexthops())
+	default:
+		hashmap := make(map[uint64][]*mpCage)
+		var attrsB []byte
+		for _, path := range p.paths {
+			attrs := path.GetPathAttrs()
+			nexthops := path.nexthops()
+			attrsB = attrsB[:0]
+			for _, v := range attrs {
+				b, _ := v.Serialize()
+				attrsB = append(attrsB, b...)
+			}
+
+			global, linkLocal := nexthops.global.As16(), nexthops.linkLocal.As16()
+			h := fnv1a.Init64
+			h = fnv1a.AddBytes64(h, attrsB)
+			h = fnv1a.AddBytes64(h, global[:])
+			h = fnv1a.AddBytes64(h, linkLocal[:])
+
 			added := false
-			for _, c := range cages {
-				if bytes.Equal(c.attrsBytes, attrsB.Bytes()) {
-					if c.nhKey == nhKey {
-						c.paths = append(c.paths, path)
-						added = true
-						break
-					}
+			for _, c := range hashmap[h] {
+				if c.nexthops == nexthops && bytes.Equal(c.attrsBytes, attrsB) {
+					c.paths = append(c.paths, path)
+					added = true
+					break
 				}
 			}
 			if !added {
-				hashmap[h] = append(hashmap[h], newMPCage(attrsB.Bytes(), nhKey, path))
+				hashmap[h] = append(hashmap[h], newMPCage(bytes.Clone(attrsB), nexthops, path))
 			}
-		} else {
-			hashmap[h] = []*mpCage{newMPCage(attrsB.Bytes(), nhKey, path)}
 		}
-	}
 
-	for _, cages := range hashmap {
-		for _, c := range cages {
-			paths := c.paths
-			if len(paths) == 0 {
-				continue
+		for _, cages := range hashmap {
+			for _, c := range cages {
+				announce(c.paths, c.paths[0].GetPathAttrs(), c.nexthops)
 			}
-
-			attrsWithoutMPReach := make([]bgp.PathAttributeInterface, 0, len(paths[0].GetPathAttrs()))
-			for _, attr := range paths[0].GetPathAttrs() {
-				if attr.GetType() != bgp.BGP_ATTR_TYPE_MP_REACH_NLRI {
-					attrsWithoutMPReach = append(attrsWithoutMPReach, attr)
-				}
-			}
-
-			attrsLen := 0
-			for _, attr := range attrsWithoutMPReach {
-				attrsLen += attr.Len()
-			}
-
-			baseReachLen := 19 + 2 + 2 + attrsLen
-			nexthops, _ := getMPReachNexthops(paths[0])
-			sampleNLRI := bgp.PathNLRI{NLRI: paths[0].GetNlri(), ID: p.pathID(paths[0])}
-			if sampleReach, err := bgp.NewPathAttributeMpReachNLRI(paths[0].GetFamily(), []bgp.PathNLRI{sampleNLRI}, nexthops...); err == nil {
-				baseReachLen += sampleReach.Len() + 1 - paths[0].GetNlri().Len(options...) // +1 for extended-length attr header
-			} else {
-				baseReachLen = maxUpdateMessageLength(options)
-			}
-			split(baseReachLen, paths, func(nlris []bgp.PathNLRI) {
-				msgs = append(msgs, p.createMPReachMessage(paths[0], nlris))
-			})
 		}
 	}
 
@@ -588,7 +550,14 @@ func (p *packerV4) add(path *Path) {
 		return
 	}
 
-	key := path.GetHash()
+	// Paths with the same attributes and different next hops must not
+	// share an UPDATE, so the next hop is part of the key.
+	nexthops := path.nexthops()
+	global, linkLocal := nexthops.global.As16(), nexthops.linkLocal.As16()
+	key := fnv1a.AddUint64(fnv1a.Init64, path.GetHash())
+	key = fnv1a.AddBytes64(key, global[:])
+	key = fnv1a.AddBytes64(key, linkLocal[:])
+
 	attrsB := bytes.NewBuffer(make([]byte, 0))
 	for _, v := range path.GetPathAttrs() {
 		b, _ := v.Serialize()
@@ -598,17 +567,17 @@ func (p *packerV4) add(path *Path) {
 	if cages, y := p.hashmap[key]; y {
 		added := false
 		for _, c := range cages {
-			if bytes.Equal(c.attrsBytes, attrsB.Bytes()) {
+			if c.nexthops == nexthops && bytes.Equal(c.attrsBytes, attrsB.Bytes()) {
 				c.paths = append(c.paths, path)
 				added = true
 				break
 			}
 		}
 		if !added {
-			p.hashmap[key] = append(p.hashmap[key], newCage(attrsB.Bytes(), path))
+			p.hashmap[key] = append(p.hashmap[key], newCage(attrsB.Bytes(), nexthops, path))
 		}
 	} else {
-		p.hashmap[key] = []*cage{newCage(attrsB.Bytes(), path)}
+		p.hashmap[key] = []*cage{newCage(attrsB.Bytes(), nexthops, path)}
 	}
 }
 
@@ -657,31 +626,19 @@ func (p *packerV4) pack(options ...*bgp.MarshallingOption) []*bgp.BGPMessage {
 		for _, c := range cages {
 			paths := c.paths
 
+			// The paths of a cage share the next hop, which is an IPv4
+			// address (see add).
 			attrs := paths[0].GetPathAttrs()
-			// we can apply a fix here when gobgp receives from MP peer
-			// and propagtes to non-MP peer
-			// we should make sure that next-hop exists in pathattrs
-			// while we build the update message
-			// we do not want to modify the `path` though
-			if paths[0].getPathAttr(bgp.BGP_ATTR_TYPE_NEXT_HOP) == nil {
-				pa, _ := bgp.NewPathAttributeNextHop(paths[0].GetNexthop())
-				attrs = append(attrs, pa)
-			}
-			// if we have ever reach here
-			// there is no point keeping MP_REACH_NLRI in the announcement
-			attrs_without_mp := make([]bgp.PathAttributeInterface, 0, len(attrs))
-			for _, attr := range attrs {
-				if attr.GetType() != bgp.BGP_ATTR_TYPE_MP_REACH_NLRI {
-					attrs_without_mp = append(attrs_without_mp, attr)
-				}
+			if pa, err := bgp.NewPathAttributeNextHop(paths[0].GetNexthop()); err == nil {
+				attrs = insertPathAttr(attrs, pa)
 			}
 			attrsLen := 0
-			for _, a := range attrs_without_mp {
+			for _, a := range attrs {
 				attrsLen += a.Len()
 			}
 
 			loop(attrsLen, paths, func(nlris []bgp.PathNLRI) {
-				msgs = append(msgs, bgp.NewBGPUpdateMessage(nil, attrs_without_mp, nlris))
+				msgs = append(msgs, bgp.NewBGPUpdateMessage(nil, attrs, nlris))
 			})
 		}
 	}

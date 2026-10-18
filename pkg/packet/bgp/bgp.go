@@ -3329,7 +3329,7 @@ func (er *EVPNIPMSIRoute) DecodeFromBytes(data []byte) error {
 }
 
 func (er *EVPNIPMSIRoute) Serialize() ([]byte, error) {
-	buf := make([]byte, 20)
+	buf := make([]byte, 20) // RD(8) + ETag(4) + EC(8).
 
 	if er.RD != nil {
 		tbuf, err := er.RD.Serialize()
@@ -3345,8 +3345,11 @@ func (er *EVPNIPMSIRoute) Serialize() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	return append(buf, ec...), nil
+	if len(ec) != 8 {
+		return nil, fmt.Errorf("invalid I-PMSI extended community length: %d", len(ec))
+	}
+	copy(buf[12:20], ec)
+	return buf, nil
 }
 
 func (er *EVPNIPMSIRoute) String() string {
@@ -3499,12 +3502,27 @@ func (n *EncapNLRI) decodeFromBytes(data []byte, options ...*MarshallingOption) 
 		eSubCode := uint8(BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST)
 		return NewMessageError(eCode, eSubCode, nil, "prefix misses length field")
 	}
+	var addrlen int
 	switch data[0] {
-	case net.IPv4len * 8, net.IPv6len * 8:
+	case net.IPv4len * 8:
+		addrlen = net.IPv4len
+	case net.IPv6len * 8:
+		addrlen = net.IPv6len
 	default:
 		return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_INVALID_NETWORK_FIELD, nil, "nlri length isn't valid")
 	}
-	addr, _ := netip.AddrFromSlice(data[1:])
+	// The length octet fixes the endpoint size, so slice to it instead of
+	// taking the rest of the buffer. In an MP_REACH/MP_UNREACH carrying more
+	// than one Encap NLRI, the trailing bytes belong to the sibling NLRIs;
+	// AddrFromSlice(data[1:]) would read them as one over-long address and
+	// return an invalid Endpoint, mis-framing the rest of the list.
+	if len(data) < 1+addrlen {
+		return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_INVALID_NETWORK_FIELD, nil, "prefix bytes are short")
+	}
+	addr, ok := netip.AddrFromSlice(data[1 : 1+addrlen])
+	if !ok {
+		return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_INVALID_NETWORK_FIELD, nil, "nlri prefix is invalid")
+	}
 	n.Endpoint = addr
 	return nil
 }
@@ -4666,6 +4684,10 @@ type FlowSpecNLRI struct {
 	Value []FlowSpecComponentInterface
 	rf    Family
 	rd    RouteDistinguisherInterface
+	// true if the NLRI length was received in the RFC 8955
+	// extended-length 2-octet form. The form is allowed for any
+	// length, so Len() and Serialize() keep it to match the wire.
+	twoOctetLength bool
 }
 
 func (n *FlowSpecNLRI) Flat() map[string]string {
@@ -4681,9 +4703,13 @@ func (n *FlowSpecNLRI) decodeFromBytes(data []byte, options ...*MarshallingOptio
 		return malformedAttrListErr("not all flowspec component bytes available")
 	}
 	var length int
-	if data[0]>>4 == 0xf && len(data) > 2 {
-		length = int(binary.BigEndian.Uint16(data[:2]))
+	if data[0]>>4 == 0xf {
+		if len(data) < 2 {
+			return malformedAttrListErr("not all flowspec component bytes available")
+		}
+		length = int(binary.BigEndian.Uint16(data[:2]) & 0x0fff)
 		data = data[2:]
+		n.twoOctetLength = true
 	} else if len(data) > 1 {
 		length = int(data[0])
 		data = data[1:]
@@ -4795,16 +4821,14 @@ func (n *FlowSpecNLRI) Serialize(options ...*MarshallingOption) ([]byte, error) 
 		}
 		buf = append(buf, b...)
 	}
-	length := n.Len(options...)
-	if length > 0xfff {
+	length := len(buf)
+	if length > 0x0fff {
 		return nil, fmt.Errorf("too large: %d", length)
-	} else if length < 0xf0 {
-		length -= 1
+	} else if length < 0xf0 && !n.twoOctetLength {
 		buf = append([]byte{byte(length)}, buf...)
 	} else {
-		length -= 2
 		b := make([]byte, 2)
-		binary.BigEndian.PutUint16(buf, uint16(length))
+		binary.BigEndian.PutUint16(b, uint16(length)|0xf000)
 		buf = append(b, buf...)
 	}
 	return buf, nil
@@ -4818,7 +4842,7 @@ func (n *FlowSpecNLRI) Len(options ...*MarshallingOption) int {
 	for _, v := range n.Value {
 		l += v.Len(options...)
 	}
-	if l < 0xf0 {
+	if l < 0xf0 && !n.twoOctetLength {
 		return l + 1
 	} else {
 		return l + 2
@@ -12575,13 +12599,15 @@ func (p *PathAttributeNextHop) DecodeFromBytes(data []byte, options ...*Marshall
 		eSubCode := uint8(BGP_ERROR_SUB_ATTRIBUTE_LENGTH_ERROR)
 		return NewMessageError(eCode, eSubCode, nil, "nexthop length isn't correct")
 	}
-	var ok bool
-	p.Value, ok = netip.AddrFromSlice(value)
+	nexthop, ok := netip.AddrFromSlice(value)
 	if !ok {
 		eCode := uint8(BGP_ERROR_UPDATE_MESSAGE_ERROR)
 		eSubCode := uint8(BGP_ERROR_SUB_INVALID_NEXT_HOP_ATTRIBUTE)
 		return NewMessageError(eCode, eSubCode, nil, "invalid nexthop address")
 	}
+	// Same as the 16-octet next hop field of MP_REACH_NLRI: a 16-octet
+	// value holding an IPv4-mapped address is the IPv4 address it embeds.
+	p.Value = nexthop.Unmap()
 	return nil
 }
 
@@ -13191,7 +13217,13 @@ func (p *PathAttributeMpReachNLRI) DecodeFromBytes(data []byte, options ...*Mars
 		p.LinkLocalNexthop, _ = netip.AddrFromSlice(nexthopbin[BGP_ATTR_NHLEN_IPV6_GLOBAL:BGP_ATTR_NHLEN_IPV6_GLOBAL_AND_LL])
 		fallthrough
 	case BGP_ATTR_NHLEN_IPV6_GLOBAL: // 16 bytes IPv6 Global
-		p.Nexthop, _ = netip.AddrFromSlice(nexthopbin[:BGP_ATTR_NHLEN_IPV6_GLOBAL])
+		nexthop, _ := netip.AddrFromSlice(nexthopbin[:BGP_ATTR_NHLEN_IPV6_GLOBAL])
+		// An IPv4-mapped address in this field is the IPv4 address it
+		// embeds (RFC 4291 Section 2.5.5.2), and Serialize writes an IPv4
+		// next hop into the 16-octet field in exactly that form. Unmap it
+		// so the two directions agree: the address a peer learns this way
+		// has to compare equal to the same IPv4 address anywhere else.
+		p.Nexthop = nexthop.Unmap()
 	case BGP_ATTR_NHLEN_IPV4: // 4 bytes IPv4
 		p.Nexthop, _ = netip.AddrFromSlice(nexthopbin[:BGP_ATTR_NHLEN_IPV4])
 	default:
@@ -14685,7 +14717,12 @@ func parseEvpnExtended(data []byte) (ExtendedCommunityInterface, error) {
 			}, nil
 		}
 	}
-	return nil, NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, fmt.Sprintf("unknown evpn subtype: %d", subType))
+	// RFC 7606 Section 7.14: an unrecognized Extended Community Type or
+	// Sub-Type MUST NOT be treated as an error.
+	return &UnknownExtended{
+		Type:  ExtendedCommunityAttrType(data[0]),
+		Value: data[1:8],
+	}, nil
 }
 
 type TrafficRateExtended struct {
@@ -17008,6 +17045,7 @@ func (msg *BGPUpdate) DecodeFromBytes(data []byte, options ...*MarshallingOption
 	options = append(options, &o)
 
 	msg.PathAttributes = []PathAttributeInterface{}
+	seenMpReach, seenMpUnreach := false, false
 	for pathlen := msg.TotalPathAttributeLen; pathlen > 0; {
 		var e error
 		if pathlen < 3 {
@@ -17022,6 +17060,24 @@ func (msg *BGPUpdate) DecodeFromBytes(data []byte, options ...*MarshallingOption
 		p, err := GetPathAttribute(data)
 		if err != nil {
 			return err
+		}
+		// RFC 7606 Section 3 g: a repeated MP_REACH_NLRI or
+		// MP_UNREACH_NLRI resets the session. Check it here, before the
+		// attribute is decoded, so that it is found whatever the other
+		// attributes or this one look like. Decoding goes on so that
+		// the caller still gets the whole message.
+		if t := BGPAttrType(data[1]); t == BGP_ATTR_TYPE_MP_REACH_NLRI || t == BGP_ATTR_TYPE_MP_UNREACH_NLRI {
+			seen := &seenMpReach
+			if t == BGP_ATTR_TYPE_MP_UNREACH_NLRI {
+				seen = &seenMpUnreach
+			}
+			if *seen {
+				e := NewMessageError(eCode, eSubCode, nil, fmt.Sprintf("the path attribute appears twice. Type : %d", t))
+				if e.(*MessageError).Stronger(strongestError) {
+					strongestError = e
+				}
+			}
+			*seen = true
 		}
 		err = p.DecodeFromBytes(data, options...)
 		if err != nil {

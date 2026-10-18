@@ -112,6 +112,25 @@ func TimingHookOption(hook FSMTimingHook) ServerOption {
 const propagateBucketCount = 2048
 
 type sharedData struct {
+	// mu is the server state lock. Serve takes it for writing around every
+	// management operation, around passConnToPeer and around a ROA event. So
+	// a management operation needs no further locking for the BgpServer
+	// fields it touches. handleFSMMessage takes it for reading, which means
+	// FSM callbacks run in parallel with each other but never with a
+	// management operation.
+	//
+	// Code that runs in its own goroutine and reaches into BgpServer, such as
+	// a BMP client, an MRT writer or the zebra client, must take mu before it
+	// reads those fields. It must not hold mu while it calls a method that
+	// runs a management operation, because the dispatcher needs the write
+	// lock and that would deadlock. The pattern is to copy what is needed
+	// under the lock and work on the copy.
+	//
+	// mu does not protect the RIB or the paths in it. TableManager and
+	// RoutingPolicy have their own locks, GetDestinations hands out
+	// snapshots, and attributes are rewritten on a clone rather than on a
+	// stored path. A reader that has copied what it needs from BgpServer can
+	// walk the RIB without mu.
 	mu               sync.RWMutex
 	propagateBuckets [propagateBucketCount]sync.Mutex
 }
@@ -132,6 +151,9 @@ func (d *sharedData) propagateBucket(path *table.Path) *sync.Mutex {
 	return &d.propagateBuckets[idx]
 }
 
+// BgpServer holds the BGP state. shared.mu covers every field below unless
+// the field says otherwise, so read the comment on sharedData.mu before you
+// touch one of them from outside a management operation.
 type BgpServer struct {
 	shared        *sharedData
 	apiServer     *server
@@ -139,7 +161,7 @@ type BgpServer struct {
 	acceptCh      chan net.Conn
 	mgmtCh        chan *mgmtOp
 	closeCh       chan struct{}
-	policy        *table.RoutingPolicy
+	policy        *table.RoutingPolicy // has its own lock
 	listeners     []*netutils.TCPListener
 	neighborMap   map[netip.Addr]*peer
 	rrClusterIDs  map[netip.Addr]struct{}
@@ -147,19 +169,23 @@ type BgpServer struct {
 	globalRib     *table.TableManager
 	rsRib         *table.TableManager
 	roaManager    *roaManager
-	watcherMap    map[watchEventType][]*watcher
+	watcherMap    map[watchEventType][]*watcher // guarded by watcherMu
 	watcherMu     sync.RWMutex
 	zclient       *zebraClient
 	bmpManager    *bmpClientManager
 	mrtManager    *mrtManager
-	roaTable      *table.ROATable
+	roaTable      *table.ROATable // no lock of its own, so shared.mu covers it
 	uuidMap       map[string]uuid.UUID
-	bfdServer     *bfdServer
+	bfdServer     *bfdServer // has its own lock
 	keychainStore *tcpAoKeychainStore
 	logger        *slog.Logger
 	logLevelVar   *slog.LevelVar
 	timingHook    FSMTimingHook
 	// manage lifecycle of the server
+	// isServing is set by Serve and is never cleared. It says that Serve was
+	// entered, not that it is still running. A server cannot be served twice:
+	// closeCh is closed when Serve returns and a closed channel cannot be
+	// reopened.
 	isServing     atomic.Bool
 	shutdownWG    *sync.WaitGroup
 	runningCtx    context.Context
@@ -417,10 +443,15 @@ func (s *BgpServer) passConnToPeer(conn net.Conn) {
 }
 
 func (s *BgpServer) Serve() {
+	// Serve runs once per server. closeCh is closed when it returns, and a
+	// closed channel cannot be reopened, so a second run would make every
+	// management operation fail with "server stopped" and would close closeCh
+	// a second time, which panics.
 	if s.isServing.Swap(true) {
 		s.logger.Warn("server is already serving",
 			slog.String("Topic", "BgpServer"),
 		)
+		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -432,23 +463,23 @@ func (s *BgpServer) Serve() {
 	defer func() {
 		close(s.closeCh)
 		s.shutdownWG.Done()
-		s.isServing.Store(false)
 	}()
 
 	for {
-		tStart := time.Now()
 		select {
 		case <-s.runningCtx.Done():
 			s.logger.Info("shutting down",
 				slog.String("Topic", "BgpServer"))
 			return
 		case op := <-s.mgmtCh:
+			tStart := time.Now()
 			tWait := tStart.Sub(op.timestamp)
 			s.shared.mu.Lock()
 			s.handleMGMTOp(op)
 			s.shared.mu.Unlock()
 			s.timingHook.Observe(FSMMgmtOp, time.Since(tStart), tWait)
 		case conn := <-s.acceptCh:
+			tStart := time.Now()
 			// NOTE: it would be useful to use kernel metrics such as SO_TIMESTAMPING to record time we got
 			// first SYN packet in TCP connection. For now we skip tWait for accept events, message/mgmt op
 			// delays should be enough to analyze FSM loop.
@@ -457,6 +488,7 @@ func (s *BgpServer) Serve() {
 			s.shared.mu.Unlock()
 			s.timingHook.Observe(FSMAccept, time.Since(tStart), 0)
 		case ev := <-s.roaManager.ReceiveROA():
+			tStart := time.Now()
 			tWait := tStart.Sub(ev.timestamp)
 			s.shared.mu.Lock()
 			s.roaManager.HandleROAEvent(ev)
@@ -1099,7 +1131,7 @@ func (s *BgpServer) getBestFromLocalCallbackLocked(peer *peer, rfList []bgp.Fami
 				}
 				dl = append(dl, u)
 			}
-			paths, rejected := s.sendSecondaryRoutes(peer, nil, dl)
+			paths, rejected := s.sendSecondaryRoutes(peer, dl)
 			pathList = append(pathList, paths...)
 			filtered = append(filtered, rejected...)
 		}
@@ -1162,7 +1194,7 @@ func needToAdvertise(peer *peer) bool {
 	return true
 }
 
-func (s *BgpServer) sendSecondaryRoutes(peer *peer, newPath *table.Path, dsts []*table.Update) (paths, filtered []*table.Path) {
+func (s *BgpServer) sendSecondaryRoutes(peer *peer, dsts []*table.Update) (paths, filtered []*table.Path) {
 	if !needToAdvertise(peer) {
 		return nil, nil
 	}
@@ -1308,8 +1340,13 @@ func (s *BgpServer) propagateUpdate(peer *peer, pathList []*table.Path) {
 
 			// Strip LOCAL_PREF from eBGP peers on ingress.
 			// RFC 4271: LOCAL_PREF is only used in iBGP.
+			//
+			// ORIGINATOR_ID and CLUSTER_LIST go with it. RFC 7606 7.9 and
+			// 7.10 discard both when an external neighbor sends them, and
+			// we would otherwise act on them when reflecting the route.
 			if peer != nil && !peer.isIBGPPeer() && !peer.isRouteServerClient() {
 				path.RemoveLocalPref()
+				path.RemoveReflectionAttrs()
 			}
 
 			policyOptions := &table.PolicyOptions{
@@ -1381,41 +1418,51 @@ func (s *BgpServer) processRTCMembership(peer *peer, path *table.Path) {
 	peer.routeRefreshInProgress.Lock()
 	defer peer.routeRefreshInProgress.Unlock()
 
-	rt := nlri.RouteTarget
-	hasRt := func(rt bgp.ExtendedCommunityInterface) bool {
-		if rt == nil {
-			return peer.rtmHandler.HasDefaultRouteTarget()
-		}
-		return peer.rtmHandler.HasRouteTarget(rt)
-	}
-
-	rtKnownBefore := hasRt(rt)
+	coveredBefore := peer.rtmHandler.Covers(nlri)
 
 	peer.rtmHandler.SyncAfterImport(path)
 
-	rtKnownAfter := hasRt(rt)
+	coveredAfter := peer.rtmHandler.Covers(nlri)
 
-	if !path.IsWithdraw && rtKnownBefore || path.IsWithdraw && rtKnownAfter {
+	// RFC 4684 Section 3 defines RT membership as {origin-as#, route-target},
+	// so a new origin AS is a distinct RTM NLRI and remains in the RTC RIB.
+	// RFC 4684 Section 6: "A BGP speaker should generate the minimum set of BGP
+	// VPN route updates"; when other memberships of this peer already contain
+	// every Route Target of this one, its VPN distribution state is unchanged,
+	// so no additional VPN update is needed.
+	if coveredBefore == coveredAfter {
 		return
 	}
 
 	fs := peerNonRTCFamilies(peer)
-	s.rtcVPNCandidates(peer, path.IsWithdraw, rt, fs, func(paths []*table.Path, filtered []*table.Path) {
-		if path.IsWithdraw {
-			// Skips filtering: paths are already scoped to this RT and withdrawals
-			// do not need path attributes.
-			peer.updateRoutes(filtered...)
-			sendfsmOutgoingMsg(peer, filtered)
-			return
+	candidates := s.rtcVPNCandidates(peer, path.IsWithdraw, nlri, fs)
+	if path.IsWithdraw {
+		// Withdraw only what this peer was sent and can no longer receive. A
+		// candidate may still be eligible through another RT, and a candidate
+		// that was rejected by the export policy or by RTC was never sent.
+		withdrawals := make([]*table.Path, 0, len(candidates))
+		for _, p := range candidates {
+			if s.filterpath(peer, p, nil) != nil {
+				continue
+			}
+			p = filteredPathForPeer(peer, p)
+			if !peer.hasPathAlreadyBeenSent(p) {
+				continue
+			}
+			withdrawals = append(withdrawals, p.Clone(true))
 		}
-		if peer.getRtcEORWait() {
-			peer.fsm.logger.Debug("Nothing sent in response to RT received. Waiting for RTC EOR.", slog.Any("Path", path))
-			return
-		}
-		filtered = s.processOutgoingPaths(peer, filtered, nil)
-		peer.updateRoutes(filtered...)
-		sendfsmOutgoingMsg(peer, filtered)
-	})
+		peer.updateRoutes(withdrawals...)
+		sendfsmOutgoingMsg(peer, withdrawals)
+		return
+	}
+	if peer.getRtcEORWait() {
+		peer.fsm.logger.Debug("Nothing sent in response to RT received. Waiting for RTC EOR.", slog.Any("Path", path))
+		return
+	}
+	// A path may have been sent through another membership already.
+	paths := slices.DeleteFunc(s.processOutgoingPaths(peer, candidates, nil), peer.hasPathAlreadyBeenSent)
+	peer.updateRoutes(paths...)
+	sendfsmOutgoingMsg(peer, paths)
 }
 
 // peerNonRTCFamilies returns the peer's negotiated families excluding RF_RTC_UC.
@@ -1430,27 +1477,32 @@ func peerNonRTCFamilies(peer *peer) []bgp.Family {
 	return fs
 }
 
-// rtcVPNCandidates returns VPN paths to announce or withdraw in response to an RTC update.
-// For a specific rt it uses the VPN path index (O(1)); for the wildcard (nil rt) it falls
-// back to a full RIB scan because all VPN families are in scope.
-func (s *BgpServer) rtcVPNCandidates(peer *peer, isWithdraw bool, rt bgp.ExtendedCommunityInterface, fs []bgp.Family, fn func([]*table.Path, []*table.Path)) {
-	if rt != nil {
-		raw := s.globalRib.GetPathsByRT(rt, fs)
-		paths := make([]*table.Path, 0, len(raw))
-		for _, p := range raw {
-			if isWithdraw {
-				p = p.Clone(true)
-			}
-			paths = append(paths, p)
-		}
-		fn(nil, paths)
-		return
+// rtcVPNCandidates returns the VPN paths that an RTC update for nlri can
+// affect. For a whole Route Target it uses the VPN path index (O(1)).
+// Otherwise nlri is a prefix of Route Targets, or the default RT, so it falls
+// back to a full RIB scan and keeps the paths that nlri contains. On a
+// withdraw it returns every path that may have been sent to the peer,
+// including the extra paths of an ADD-PATH peer. The paths are returned as
+// they are in the RIB; the caller filters them and turns them into
+// withdrawals.
+func (s *BgpServer) rtcVPNCandidates(peer *peer, isWithdraw bool, nlri *bgp.RouteTargetMembershipNLRI, fs []bgp.Family) []*table.Path {
+	if nlri.Length == bgp.RouteTargetMembershipPrefixLen && nlri.RouteTarget != nil {
+		return s.globalRib.GetPathsByRT(nlri.RouteTarget, fs)
 	}
+	var paths []*table.Path
 	if isWithdraw {
-		s.getBestFromLocalCallbackLocked(peer, fs, false, fn)
-		return
+		for _, f := range peer.toGlobalFamilies(fs) {
+			paths = append(paths, s.getPossibleBest(peer, f)...)
+		}
+	} else {
+		paths = s.globalRib.GetBestPathList(peer.TableID(), 0, fs)
 	}
-	fn(nil, s.globalRib.GetBestPathList(peer.TableID(), 0, fs))
+	if nlri.Length <= 32 {
+		return paths
+	}
+	return slices.DeleteFunc(paths, func(p *table.Path) bool {
+		return !table.RouteTargetMembershipContains(nlri, p)
+	})
 }
 
 func dstsToPaths(id string, as uint32, dsts []*table.Update, useMultiplePaths bool) ([]*table.Path, []*table.Path, [][]*table.Path, []*table.Path, []*table.Path) {
@@ -1607,7 +1659,7 @@ func (s *BgpServer) propagateUpdateToNeighbors(rib *table.TableManager, source *
 			} else {
 				if targetPeer.isRouteServerClient() {
 					if targetPeer.isSecondaryRouteEnabled() {
-						if paths, _ := s.sendSecondaryRoutes(targetPeer, newPath, dsts); len(paths) > 0 {
+						if paths, _ := s.sendSecondaryRoutes(targetPeer, dsts); len(paths) > 0 {
 							targetPeer.updateRoutes(paths...)
 							sendfsmOutgoingMsg(targetPeer, paths)
 						}
@@ -2579,7 +2631,13 @@ func apiutil2Path(path *apiutil.Path, isVRFTable bool, isWithdraw ...bool) (*tab
 	}
 
 	doWithdraw := len(isWithdraw) > 0 && isWithdraw[0] || path.Withdrawal
-	p := table.NewPath(path.Family, source, bgp.PathNLRI{NLRI: path.Nlri, ID: path.RemoteID}, doWithdraw, pattrs, time.Unix(path.Age, 0), path.NoImplicitWithdraw)
+	// A client that does not set the age gets the time the path is added,
+	// not the Unix epoch.
+	timestamp := time.Now()
+	if path.Age != 0 {
+		timestamp = time.Unix(path.Age, 0)
+	}
+	p := table.NewPath(path.Family, source, bgp.PathNLRI{NLRI: path.Nlri, ID: path.RemoteID}, doWithdraw, pattrs, timestamp, path.NoImplicitWithdraw)
 	if p == nil {
 		return nil, fmt.Errorf("invalid path: %v", path)
 	}
@@ -3545,9 +3603,7 @@ func (s *BgpServer) ListPeer(ctx context.Context, r *api.ListPeerRequest, fn fun
 							received = uint64(peer.adjRibIn.Count(flist))
 							accepted = uint64(peer.adjRibIn.Accepted(flist))
 							if getAdvertised {
-								s.getBestFromLocalCallback(peer, flist, false, false, func(paths []*table.Path, filtered []*table.Path) {
-									advertised = uint64(len(paths))
-								})
+								advertised = uint64(peer.advertisedRoutes(flist))
 							}
 						}
 						p.AfiSafis[i].State = &api.AfiSafiState{
@@ -3670,15 +3726,6 @@ func (s *BgpServer) addNeighbor(c *oc.Neighbor) error {
 	if err != nil {
 		return err
 	}
-	if s.bgpConfig.Global.Config.Port > 0 {
-		if err := s.addAuthKeysToListeners(s.listListeners(addr), ipAddr, c, tcpAoKeyBinding); err != nil {
-			return err
-		}
-	}
-	s.logger.Info("Add a peer configuration",
-		slog.String("Topic", "Peer"),
-		slog.String("Key", addr))
-
 	rib := s.globalRib
 	if c.RouteServer.Config.RouteServerClient {
 		rib = s.rsRib
@@ -3688,6 +3735,15 @@ func (s *BgpServer) addNeighbor(c *oc.Neighbor) error {
 	if err := s.setPeerPolicy(peer, c.ApplyPolicy); err != nil {
 		return fmt.Errorf("failed to set peer policy for %s: %v", addr, err)
 	}
+	if s.bgpConfig.Global.Config.Port > 0 {
+		if err := s.addAuthKeysToListeners(s.listListeners(addr), ipAddr, c, tcpAoKeyBinding); err != nil {
+			s.policy.DeletePeerPolicy(peer.ID())
+			return err
+		}
+	}
+	s.logger.Info("Add a peer configuration",
+		slog.String("Topic", "Peer"),
+		slog.String("Key", addr))
 	s.neighborMap[ipAddr] = peer
 	s.rebuildLocalClusterIDs()
 	if s.bfdServer != nil {
@@ -4960,7 +5016,7 @@ func toPathApiUtil(path *table.Path) *apiutil.Path {
 		Family:             path.GetFamily(),
 		Nlri:               path.GetNlri(),
 		Age:                path.GetTimestamp().Unix(),
-		Attrs:              path.GetPathAttrs(),
+		Attrs:              path.GetFullPathAttrs(),
 		Stale:              path.IsStale(),
 		Withdrawal:         path.IsWithdraw,
 		IsFromExternal:     path.IsFromExternal(),

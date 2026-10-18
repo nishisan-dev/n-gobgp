@@ -15,6 +15,7 @@ import (
 	"github.com/osrg/gobgp/v4/pkg/packet/bgp"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPathNewIPv4(t *testing.T) {
@@ -65,9 +66,12 @@ func TestPathGetAttribute(t *testing.T) {
 	peerP := PathCreatePeer()
 	pathP := PathCreatePath(peerP)
 	nh := "192.168.50.1"
-	pa := pathP[0].getPathAttr(bgp.BGP_ATTR_TYPE_NEXT_HOP)
-	r_nh := pa.(*bgp.PathAttributeNextHop).Value.String()
-	assert.Equal(t, r_nh, nh)
+	assert.Equal(t, nh, pathP[0].GetNexthop().String())
+	// The next hop is kept out of the path attributes.
+	assert.Nil(t, pathP[0].getPathAttr(bgp.BGP_ATTR_TYPE_NEXT_HOP))
+	pa := pathP[0].getPathAttr(bgp.BGP_ATTR_TYPE_ORIGIN)
+	require.NotNil(t, pa)
+	assert.Equal(t, bgp.BGP_ORIGIN_ATTR_TYPE_IGP, pa.(*bgp.PathAttributeOrigin).Value)
 }
 
 func TestASPathLen(t *testing.T) {
@@ -252,11 +256,11 @@ func TestGetPathAttrs(t *testing.T) {
 	paths := PathCreatePath(PathCreatePeer())
 	path0 := paths[0]
 	path1 := path0.Clone(false)
-	path1.delPathAttr(bgp.BGP_ATTR_TYPE_NEXT_HOP)
+	path1.delPathAttr(bgp.BGP_ATTR_TYPE_MULTI_EXIT_DISC)
+	assert.Nil(t, path1.getPathAttr(bgp.BGP_ATTR_TYPE_MULTI_EXIT_DISC))
 	path2 := path1.Clone(false)
-	nexthopAttr, _ := bgp.NewPathAttributeNextHop(netip.MustParseAddr("192.168.50.1"))
-	path2.setPathAttr(nexthopAttr)
-	assert.NotNil(t, path2.getPathAttr(bgp.BGP_ATTR_TYPE_NEXT_HOP))
+	path2.setPathAttr(bgp.NewPathAttributeMultiExitDisc(100))
+	assert.NotNil(t, path2.getPathAttr(bgp.BGP_ATTR_TYPE_MULTI_EXIT_DISC))
 }
 
 /*
@@ -830,9 +834,7 @@ func TestUpdatePathAttrsLinkLocalNexthop(t *testing.T) {
 			path := linkLocalNexthopPath(t, tt.source, tt.nexthops...)
 			updated := UpdatePathAttrs(logger, global, tt.info, path)
 
-			nexthop, linkLocalNexthop := updated.mpReachNexthops()
-			assert.Equal(t, tt.wantNexthop, nexthop)
-			assert.Equal(t, tt.wantLinkLocal, linkLocalNexthop)
+			assert.Equal(t, Nexthops{global: tt.wantNexthop, linkLocal: tt.wantLinkLocal}, updated.nexthops())
 		})
 	}
 }
@@ -869,4 +871,78 @@ func TestMarkStaleIsRaceFree(t *testing.T) {
 	wg.Wait()
 
 	assert.True(t, watched.IsStale())
+}
+
+func TestNlriToPrefix(t *testing.T) {
+	rd, _ := bgp.ParseRouteDistinguisher("100:100")
+	evpn := func(prefix string, bits uint8) bgp.NLRI {
+		n, _ := bgp.NewEVPNIPPrefixRoute(rd, bgp.EthernetSegmentIdentifier{}, 0, bits, netip.MustParseAddr(prefix), netip.IPv4Unspecified(), 100)
+		return n
+	}
+	labels := bgp.NewMPLSLabelStack(100, 200)
+	ip, _ := bgp.NewIPAddrPrefix(netip.MustParsePrefix("30.30.30.0/24"))
+	mpls, _ := bgp.NewLabeledIPAddrPrefix(netip.MustParsePrefix("30.30.30.0/24"), *labels)
+	vpn, _ := bgp.NewLabeledVPNIPAddrPrefix(netip.MustParsePrefix("30.30.30.0/24"), *labels, rd)
+	macIP, _ := bgp.NewEVPNMacIPAdvertisementRoute(rd, bgp.EthernetSegmentIdentifier{}, 0, "00:11:22:33:44:55", netip.MustParseAddr("30.30.30.1"), nil)
+	macIPv6, _ := bgp.NewEVPNMacIPAdvertisementRoute(rd, bgp.EthernetSegmentIdentifier{}, 0, "00:11:22:33:44:55", netip.MustParseAddr("2001:db8::1"), nil)
+	macOnly, _ := bgp.NewEVPNMacIPAdvertisementRoute(rd, bgp.EthernetSegmentIdentifier{}, 0, "00:11:22:33:44:55", netip.Addr{}, nil)
+
+	tests := []struct {
+		name string
+		nlri bgp.NLRI
+		want netip.Prefix
+	}{
+		{"ipv4", ip, netip.MustParsePrefix("30.30.30.0/24")},
+		{"labeled", mpls, netip.MustParsePrefix("30.30.30.0/24")},
+		{"labeled vpn", vpn, netip.MustParsePrefix("30.30.30.0/24")},
+		{"evpn type 5 v4", evpn("30.30.30.0", 24), netip.MustParsePrefix("30.30.30.0/24")},
+		{"evpn type 5 v6", evpn("2806:106e:19::", 48), netip.MustParsePrefix("2806:106e:19::/48")},
+		{"evpn type 2 v4", macIP, netip.MustParsePrefix("30.30.30.1/32")},
+		{"evpn type 2 v6", macIPv6, netip.MustParsePrefix("2001:db8::1/128")},
+		{"evpn type 2 mac only", macOnly, netip.Prefix{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := nlriToPrefix(tt.nlri)
+			assert.Equal(t, tt.want.IsValid(), got.IsValid())
+			if tt.want.IsValid() {
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
+
+// Two VRFs with the same prefix give two VPN routes that differ only in the
+// RD. After ToGlobalPath, their destination keys have to differ too.
+// Otherwise one hides the other wherever the key is used, for example when
+// an UPDATE is built from both.
+func TestToGlobalPathKeepsRDInKey(t *testing.T) {
+	rt, _ := bgp.ParseRouteTarget("100:100")
+	newGlobal := func(rd string) *Path {
+		r, err := bgp.ParseRouteDistinguisher(rd)
+		assert.NoError(t, err)
+		v := &Vrf{Name: rd, Rd: r, ExportRt: []bgp.ExtendedCommunityInterface{rt}}
+		nlri, _ := bgp.NewIPAddrPrefix(netip.MustParsePrefix("20.0.0.0/24"))
+		nh, _ := bgp.NewPathAttributeNextHop(netip.MustParseAddr("192.0.2.1"))
+		p := NewPath(bgp.RF_IPv4_UC, nil, bgp.PathNLRI{NLRI: nlri}, false,
+			[]bgp.PathAttributeInterface{bgp.NewPathAttributeOrigin(0), nh}, time.Now(), false)
+		assert.NoError(t, v.ToGlobalPath(p))
+		return p
+	}
+	p1 := newGlobal("100:100")
+	p2 := newGlobal("300:300")
+
+	assert.Equal(t, "100:100:20.0.0.0/24", p1.GetDestLocalKey().Prefix)
+	assert.Equal(t, "300:300:20.0.0.0/24", p2.GetDestLocalKey().Prefix)
+	assert.NotEqual(t, p1.GetLocalKey(), p2.GetLocalKey())
+
+	n := 0
+	for _, msg := range CreateUpdateMsgFromPaths([]*Path{p1, p2}) {
+		for _, a := range msg.Body.(*bgp.BGPUpdate).PathAttributes {
+			if mp, ok := a.(*bgp.PathAttributeMpReachNLRI); ok {
+				n += len(mp.Value)
+			}
+		}
+	}
+	assert.Equal(t, 2, n, "both routes must be in the UPDATE")
 }

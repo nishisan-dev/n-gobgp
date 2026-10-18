@@ -1463,7 +1463,7 @@ func TestBMPStatsUpdate(t *testing.T) {
 // makePath creates a table.Path with the given IPv4 prefix, nexthop, and
 // community.  All three attributes influence whether paths can be packed into
 // the same UPDATE by CreateUpdateMsgFromPaths.
-func makePath(t *testing.T, prefix string, nexthop string, community uint32) *table.Path {
+func makePath(t testing.TB, prefix string, nexthop string, community uint32) *table.Path {
 	t.Helper()
 	nlri, err := bgp.NewIPAddrPrefix(netip.MustParsePrefix(prefix))
 	if err != nil {
@@ -1697,8 +1697,8 @@ func TestSendMessageloop_KillSignal(t *testing.T) {
 	// sendMessageloop should return (not hang) when it encounters the
 	// non-path message during drain or on the next outer select iteration.
 	select {
-	case <-errCh:
-		// success -- the loop exited
+	case err := <-errCh:
+		assert.NoError(t, err)
 	case <-time.After(2 * time.Second):
 		t.Fatal("sendMessageloop did not exit after non-path message")
 	}
@@ -1773,4 +1773,122 @@ func TestRace_NewWatchEventPeerRecvOpen(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	close(stop)
 	wg.Wait()
+}
+
+// buildUpdate returns a raw UPDATE message with no withdrawn routes and the
+// given path attributes and NLRI.
+func buildUpdate(attrs, nlri []byte) []byte {
+	body := []byte{0x00, 0x00, byte(len(attrs) >> 8), byte(len(attrs))}
+	body = append(append(body, attrs...), nlri...)
+	l := bgp.BGP_HEADER_LENGTH + len(body)
+	msg := make([]byte, 16, l) // marker
+	for i := range msg {
+		msg[i] = 0xff
+	}
+	msg = append(msg, byte(l>>8), byte(l), bgp.BGP_MSG_UPDATE)
+	return append(msg, body...)
+}
+
+// recvUpdate feeds raw to recvMessageloop on a treat-as-withdraw IPv4 unicast
+// session and returns either the message passed to the callback or the
+// NOTIFICATION that was sent.
+func recvUpdate(t *testing.T, raw []byte) (*fsmMsg, *bgp.BGPMessage) {
+	t.Helper()
+	m := NewMockConnection()
+	p, h := makePeerAndHandler(m)
+	t.Cleanup(func() { cleanPeerAndHandler(p, h) })
+
+	h.fsm.isTreatAsWithdraw = true
+	h.fsm.familyMap.Store(map[bgp.Family]bgp.BGPAddPathMode{bgp.RF_IPv4_UC: bgp.BGP_ADD_PATH_NONE})
+
+	received := make(chan *fsmMsg, 1)
+	h.callback = func(msg *fsmMsg) { received <- msg }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go h.recvMessageloop(ctx, m.Conn, make(chan struct{}, 2), make(chan fsmStateReason, 3), wg)
+	go m.remote.Write(raw)
+
+	select {
+	case fmsg := <-received:
+		return fmsg, nil
+	case n := <-h.fsm.notification:
+		return nil, n
+	case <-time.After(5 * time.Second):
+		t.Fatal("neither a callback nor a notification within 5s")
+		return nil, nil
+	}
+}
+
+// TestRecvMessageloop_ValidatesUpdateAfterAttributeDiscard verifies that an
+// UPDATE whose decoder already discarded one malformed attribute still goes
+// through ValidateUpdateMsg, so the semantic checks on the remaining
+// attributes are not skipped.
+func TestRecvMessageloop_ValidatesUpdateAfterAttributeDiscard(t *testing.T) {
+	// UPDATE for 192.168.1.0/24 carrying an ATOMIC_AGGREGATE with a one
+	// byte value. RFC 7606 Section 7.6 discards that attribute, which is
+	// enough for the decoder to report ERROR_HANDLING_ATTRIBUTE_DISCARD.
+	// The tail is filled in by the subtests.
+	head := []byte{
+		0x40, 0x01, 0x01, 0x00, // ORIGIN: IGP
+		0x40, 0x02, 0x06, 0x02, 0x01, 0x00, 0x00, 0xfd, 0xe9, // AS_PATH: 65001
+		0x40, 0x03, 0x04, 0x0a, 0x00, 0x00, 0x01, // NEXT_HOP: 10.0.0.1
+		0x40, 0x06, 0x01, 0x00, // ATOMIC_AGGREGATE with a value: discarded
+	}
+	nlri := []byte{0x18, 0xc0, 0xa8, 0x01} // 192.168.1.0/24
+
+	build := func(extra []byte) []byte {
+		return buildUpdate(append(append([]byte{}, head...), extra...), nlri)
+	}
+
+	t.Run("InvalidOrigin", func(t *testing.T) {
+		assert := assert.New(t)
+
+		raw := build(nil)
+		raw[bgp.BGP_HEADER_LENGTH+7] = 0x09 // ORIGIN value out of range
+
+		fmsg, n := recvUpdate(t, raw)
+		assert.Nil(n)
+		if assert.NotNil(fmsg) {
+			assert.Equal(bgp.ERROR_HANDLING_TREAT_AS_WITHDRAW, fmsg.handling)
+		}
+	})
+
+	t.Run("UnrecognizedWellKnownAttribute", func(t *testing.T) {
+		assert := assert.New(t)
+
+		// type 200 with only the transitive flag set is a well-known
+		// attribute this implementation does not recognize.
+		raw := build([]byte{0x40, 0xc8, 0x01, 0x00})
+
+		fmsg, n := recvUpdate(t, raw)
+		assert.Nil(n)
+		if assert.NotNil(fmsg) {
+			assert.Equal(bgp.ERROR_HANDLING_TREAT_AS_WITHDRAW, fmsg.handling)
+		}
+	})
+}
+
+// TestRecvMessageloop_RepeatedMpUnreachAfterTreatAsWithdraw verifies that a
+// repeated MP_UNREACH_NLRI resets the session even when another attribute
+// already made the UPDATE treat-as-withdraw (RFC 7606 Section 3 g).
+func TestRecvMessageloop_RepeatedMpUnreachAfterTreatAsWithdraw(t *testing.T) {
+	assert := assert.New(t)
+
+	raw := buildUpdate([]byte{
+		0x40, 0x01, 0x02, 0x00, 0x00, // ORIGIN with a bad length: treat-as-withdraw
+		0x40, 0x02, 0x06, 0x02, 0x01, 0x00, 0x00, 0xfd, 0xe9, // AS_PATH: 65001
+		0x80, 0x0f, 0x07, 0x00, 0x01, 0x01, 0x18, 0x0a, 0x01, 0x01, // MP_UNREACH: 10.1.1.0/24
+		0x80, 0x0f, 0x07, 0x00, 0x01, 0x01, 0x18, 0x0a, 0x02, 0x02, // MP_UNREACH: 10.2.2.0/24
+	}, nil)
+
+	fmsg, n := recvUpdate(t, raw)
+	assert.Nil(fmsg)
+	if assert.NotNil(n) {
+		body := n.Body.(*bgp.BGPNotification)
+		assert.Equal(uint8(bgp.BGP_ERROR_UPDATE_MESSAGE_ERROR), body.ErrorCode)
+		assert.Equal(uint8(bgp.BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST), body.ErrorSubcode)
+	}
 }

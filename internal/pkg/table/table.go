@@ -406,7 +406,7 @@ func (t *Table) deletePathsByVrf(vrf *Vrf) []*Path {
 			}
 			if p.IsLocal() && vrf.Rd.String() == rd.String() {
 				pathList = append(pathList, p.Clone(true))
-				return
+				continue
 			}
 		}
 	})
@@ -1187,11 +1187,6 @@ func (t *Table) Info(option ...TableInfoOptions) *TableInfo {
 		NumCollision:   numC,
 	}
 }
-
-// DefaultRT is the uint64 encoding of the default (wildcard) Route Target used in RTC.
-// It indicates interest in all routes, regardless of their Route Targets.
-// In RouteTargetMembershipNLRI, this value is represented as a nil RouteTarget.
-const DefaultRT uint64 = 0
 
 type routeTargetMap map[uint64]bgp.ExtendedCommunityInterface
 

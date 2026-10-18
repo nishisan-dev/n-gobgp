@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
+	tspb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func mustApi2apiutilPath(path *api.Path) *apiutil.Path {
@@ -604,6 +605,100 @@ func TestGRPCAddPathUpdatesUUIDMap(t *testing.T) {
 	assert.Len(s.uuidMap, 1)
 	for _, v := range s.uuidMap {
 		assert.Equal(id, v)
+	}
+}
+
+// A FlowSpec route has no next hop. AddPath (apiutil2Path) and AddPathStream
+// (api2Path) must both accept it.
+func TestApi2PathFlowSpecWithoutNexthop(t *testing.T) {
+	prefix4, err := bgp.NewIPAddrPrefix(netip.MustParsePrefix("10.0.0.0/24"))
+	require.NoError(t, err)
+	prefix6, err := bgp.NewIPAddrPrefix(netip.MustParsePrefix("2001:db8::/64"))
+	require.NoError(t, err)
+	rd, err := bgp.ParseRouteDistinguisher("100:100")
+	require.NoError(t, err)
+
+	fs4, err := bgp.NewFlowSpecUnicast(bgp.RF_FS_IPv4_UC, []bgp.FlowSpecComponentInterface{bgp.NewFlowSpecDestinationPrefix(prefix4)})
+	require.NoError(t, err)
+	fs6, err := bgp.NewFlowSpecUnicast(bgp.RF_FS_IPv6_UC, []bgp.FlowSpecComponentInterface{bgp.NewFlowSpecDestinationPrefix6(prefix6, 0)})
+	require.NoError(t, err)
+	fs4vpn, err := bgp.NewFlowSpecVPN(bgp.RF_FS_IPv4_VPN, rd, []bgp.FlowSpecComponentInterface{bgp.NewFlowSpecDestinationPrefix(prefix4)})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name   string
+		family bgp.Family
+		nlri   bgp.NLRI
+	}{
+		{"ipv4 flowspec", bgp.RF_FS_IPv4_UC, fs4},
+		{"ipv6 flowspec", bgp.RF_FS_IPv6_UC, fs6},
+		{"ipv4 flowspec vpn", bgp.RF_FS_IPv4_VPN, fs4vpn},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mpreach, err := bgp.NewPathAttributeMpReachNLRI(tt.family, []bgp.PathNLRI{{NLRI: tt.nlri}})
+			require.NoError(t, err)
+			path := &api.Path{
+				Family: apiutil.ToApiFamily(tt.family.Afi(), tt.family.Safi()),
+				Nlri:   nlri(tt.nlri),
+				Pattrs: attrs([]bgp.PathAttributeInterface{bgp.NewPathAttributeOrigin(0), mpreach}),
+			}
+
+			p, err := api2Path(api.TableType_TABLE_TYPE_GLOBAL, path)
+			require.NoError(t, err, "api2Path")
+			assert.Equal(t, tt.family, p.GetFamily())
+			assert.False(t, p.GetNexthop().IsValid())
+
+			p, err = apiutil2Path(mustApi2apiutilPath(path), false)
+			require.NoError(t, err, "apiutil2Path")
+			assert.Equal(t, tt.family, p.GetFamily())
+			assert.False(t, p.GetNexthop().IsValid())
+		})
+	}
+}
+
+// AddPath (apiutil2Path) and AddPathStream (api2Path) take the source
+// address of a path from neighbor_ip, and take its timestamp from age, or
+// use the current time when age is not set.
+func TestApi2PathSourceAndAge(t *testing.T) {
+	prefix, err := bgp.NewIPAddrPrefix(netip.MustParsePrefix("10.0.0.0/24"))
+	require.NoError(t, err)
+	nh, err := bgp.NewPathAttributeNextHop(netip.MustParseAddr("192.0.2.1"))
+	require.NoError(t, err)
+	newPath := func() *api.Path {
+		return &api.Path{
+			Family: apiutil.ToApiFamily(bgp.AFI_IP, bgp.SAFI_UNICAST),
+			Nlri:   nlri(prefix),
+			Pattrs: attrs([]bgp.PathAttributeInterface{bgp.NewPathAttributeOrigin(0), nh}),
+		}
+	}
+
+	for _, conv := range []struct {
+		name string
+		fn   func(*api.Path) (*table.Path, error)
+	}{
+		{"apiutil2Path", func(p *api.Path) (*table.Path, error) { return apiutil2Path(mustApi2apiutilPath(p), false) }},
+		{"api2Path", func(p *api.Path) (*table.Path, error) { return api2Path(api.TableType_TABLE_TYPE_GLOBAL, p) }},
+	} {
+		t.Run(conv.name, func(t *testing.T) {
+			age := time.Unix(1700000000, 0)
+			path := newPath()
+			path.SourceAsn = 65001
+			path.SourceId = "10.0.0.2"
+			path.NeighborIp = "10.0.0.3"
+			path.Age = tspb.New(age)
+			p, err := conv.fn(path)
+			require.NoError(t, err)
+			assert.Equal(t, netip.MustParseAddr("10.0.0.3"), p.GetSource().Address)
+			assert.False(t, p.IsLocal())
+			assert.Equal(t, age, p.GetTimestamp())
+
+			before := time.Now().Truncate(time.Second)
+			p, err = conv.fn(newPath())
+			require.NoError(t, err)
+			assert.True(t, p.IsLocal())
+			assert.False(t, p.GetTimestamp().Before(before), "timestamp %s", p.GetTimestamp())
+		})
 	}
 }
 
