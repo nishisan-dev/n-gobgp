@@ -16,6 +16,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -100,6 +101,9 @@ type pathIDSet map[uint32]struct{}
 type peer struct {
 	tableId string
 	fsm     *fsm
+	// Policy IDs are updated with assignments under the server lock.
+	importPolicyID string
+	exportPolicyID string
 	// configuredConf is the neighbor configuration as the caller passed it,
 	// before SetDefaultNeighborConfigValues merged the peer group, the global
 	// configuration and the derived values into it. updatePeerGroup merges
@@ -131,6 +135,9 @@ type peer struct {
 	rtmHandler *table.RouteTargetMembershipHandler
 	// Route refresh in progress, during an established session or route refresh, this need to be atomic to avoid out of order updates
 	routeRefreshInProgress sync.RWMutex
+	// deferralCancel stops the deferral timer of the current session.
+	// Protected by fsm.lock.
+	deferralCancel context.CancelFunc
 }
 
 // cloneNeighborConfig copies a neighbor configuration deeply enough to be
@@ -154,6 +161,8 @@ func newPeer(g *oc.Global, conf *oc.Neighbor, state bgp.FSMState, loc *table.Tab
 	} else {
 		peer.tableId = table.GLOBAL_RIB_NAME
 	}
+	peer.importPolicyID = peer.tableId
+	peer.exportPolicyID = peer.tableId
 	rfs, _ := oc.AfiSafis(conf.AfiSafis).ToRfList()
 	peer.adjRibIn = table.NewAdjRib(logger, rfs)
 	peer.rtmHandler = table.NewRouteTargetMembershipHandler()
@@ -189,6 +198,26 @@ func (peer *peer) routerID() netip.Addr {
 
 func (peer *peer) TableID() string {
 	return peer.tableId
+}
+
+// updatePolicyIDs resolves assignments only when they change, under the server lock.
+// A regular peer has an assignment when its policy list is non-empty or its
+// default action is explicitly set. Otherwise it uses the global assignment.
+func (peer *peer) updatePolicyIDs() {
+	peer.importPolicyID = peer.tableId
+	peer.exportPolicyID = peer.tableId
+	if peer.isRouteServerClient() {
+		return
+	}
+	id := peer.ID()
+	def, policies, _ := peer.policy.GetPolicyAssignment(id, table.POLICY_DIRECTION_IMPORT)
+	if len(policies) != 0 || def != table.ROUTE_TYPE_NONE {
+		peer.importPolicyID = id
+	}
+	def, policies, _ = peer.policy.GetPolicyAssignment(id, table.POLICY_DIRECTION_EXPORT)
+	if len(policies) != 0 || def != table.ROUTE_TYPE_NONE {
+		peer.exportPolicyID = id
+	}
 }
 
 func (peer *peer) allowAsPathLoopLocal() bool {
@@ -380,7 +409,12 @@ func (peer *peer) resetAdvertisedRoutes() {
 }
 
 func (peer *peer) isDynamicNeighbor() bool {
-	conf := peer.fsm.pConf.ReadOnly()
+	return isDynamicNeighborConf(peer.fsm.pConf.ReadOnly())
+}
+
+// isDynamicNeighborConf is the identity check behind isDynamicNeighbor. A
+// dynamic neighbor has no configured address or interface of its own.
+func isDynamicNeighborConf(conf *oc.Neighbor) bool {
 	return !conf.Config.NeighborAddress.IsValid() && conf.Config.NeighborInterface == ""
 }
 
@@ -505,6 +539,26 @@ func (peer *peer) llgrFamilies() ([]bgp.Family, []bgp.Family) {
 	return classifyFamilies(peer.configuredRFlist(), list)
 }
 
+// extendedNexthopFamily reports whether the peer advertised the Extended
+// Next Hop Encoding capability (RFC 8950) for the family with next hop AFI
+// IPv6.
+func (peer *peer) extendedNexthopFamily(family bgp.Family) bool {
+	peer.fsm.lock.Lock()
+	defer peer.fsm.lock.Unlock()
+	for _, c := range peer.fsm.capMap[bgp.BGP_CAP_EXTENDED_NEXTHOP] {
+		enhe, ok := c.(*bgp.CapExtendedNexthop)
+		if !ok {
+			continue
+		}
+		for _, t := range enhe.Tuples {
+			if t.NLRIAFI == family.Afi() && t.NLRISAFI == uint16(family.Safi()) && t.NexthopAFI == bgp.AFI_IP6 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (peer *peer) isLLGREnabledFamily(family bgp.Family) bool {
 	conf := peer.fsm.pConf.ReadOnly()
 	llgrEnabled := conf.GracefulRestart.Config.LongLivedEnabled
@@ -560,6 +614,17 @@ func (peer *peer) llgrRestartTimerExpired(family bgp.Family) bool {
 
 func (peer *peer) markLLGRStale(fs []bgp.Family) []*table.Path {
 	return peer.adjRibIn.MarkLLGRStaleOrDrop(fs)
+}
+
+// stopDeferralTimer stops the deferral timer that startDeferralTimer started
+// for the current session, if there is one.
+func (peer *peer) stopDeferralTimer() {
+	peer.fsm.lock.Lock()
+	if peer.deferralCancel != nil {
+		peer.deferralCancel()
+		peer.deferralCancel = nil
+	}
+	peer.fsm.lock.Unlock()
 }
 
 func (peer *peer) stopPeerRestarting() {
@@ -646,6 +711,12 @@ func (peer *peer) filterPathFromSourcePeer(path, old *table.Path) *table.Path {
 
 func (peer *peer) sendNotification(msg *bgp.BGPMessage) {
 	nonblockSendChannel(peer.fsm.notification, msg)
+}
+
+// reset passes ResetPeer to the FSM. A reset that is not handled yet makes
+// a new one unnecessary, so the new one is dropped.
+func (peer *peer) reset(communication []byte) {
+	nonblockSendChannel(peer.fsm.resetCh, communication)
 }
 
 // needs to be called under fsm.lock

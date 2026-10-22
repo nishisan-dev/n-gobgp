@@ -11966,6 +11966,7 @@ const (
 	BGP_ERROR_SUB_CONNECTION_COLLISION_RESOLUTION
 	BGP_ERROR_SUB_OUT_OF_RESOURCES
 	BGP_ERROR_SUB_HARD_RESET // RFC8538
+	BGP_ERROR_SUB_BFD_DOWN   // RFC9384
 )
 
 // Constants for BGP_ERROR_SUB_ADMINISTRATIVE_SHUTDOWN and BGP_ERROR_SUB_ADMINISTRATIVE_RESET
@@ -12050,6 +12051,8 @@ func (c NotificationErrorCode) String() string {
 			"other configuration change",
 			"connection collision resolution",
 			"out of resources",
+			"hard reset",
+			"bfd down",
 		}
 	case BGP_ERROR_ROUTE_REFRESH_MESSAGE_ERROR:
 		codeStr = "route refresh"
@@ -15118,6 +15121,17 @@ func parseGenericTransitiveExperimentalExtended(data []byte) (ExtendedCommunityI
 		return nil, NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, fmt.Sprintf("ext comm type is not EC_TYPE_GENERIC_TRANSITIVE_EXPERIMENTAL: %d", data[0]))
 	}
 	subType := ExtendedCommunityAttrSubType(data[1])
+	// The traffic filtering actions and the Layer2 Info community are
+	// defined for type 0x80 only. RFC7674 adds the redirect sub-type, and
+	// nothing else, to types 0x81 and 0x82. Their serializers always write
+	// type 0x80, so decoding another type here would change the community
+	// when it is sent on.
+	if typ != EC_TYPE_GENERIC_TRANSITIVE_EXPERIMENTAL && subType != EC_SUBTYPE_FLOWSPEC_REDIRECT {
+		return &UnknownExtended{
+			Type:  typ,
+			Value: data[1:8],
+		}, nil
+	}
 	switch subType {
 	case EC_SUBTYPE_FLOWSPEC_TRAFFIC_RATE:
 		asn := binary.BigEndian.Uint16(data[2:4])

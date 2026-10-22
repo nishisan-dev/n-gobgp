@@ -45,7 +45,32 @@ import (
 
 const (
 	minConnectRetryInterval = 2
+
+	// The first connection attempt after the FSM leaves Idle waits a
+	// random time in [0, firstConnectDelayMax). In RFC 4271 Section 8.2.2,
+	// on a start event in the Idle state, the local system "initiates a
+	// TCP connection to the other BGP peer". The RFC does not ask for a
+	// wait there, and FRR connects at once. We still wait a little: when
+	// a session goes down, both sides leave Idle at about the same time,
+	// and connections made at the same time collide. Only the random part
+	// of the wait makes the two sides connect at different times.
+	firstConnectDelayMax = time.Second
 )
+
+// firstConnectDelay returns the wait before the first connection attempt
+// after the FSM leaves Idle.
+func firstConnectDelay() time.Duration {
+	return time.Duration(rand.Float64() * float64(firstConnectDelayMax))
+}
+
+// connectRetryDelay returns the wait before the next connection attempt.
+// RFC 4271 Section 10 says: "The suggested default amount of jitter SHALL
+// be determined by multiplying the base value of the appropriate timer by
+// a random factor, which is uniformly distributed in the range from 0.75
+// to 1.0."
+func connectRetryDelay(interval int) time.Duration {
+	return time.Duration((0.75 + rand.Float64()*0.25) * float64(interval) * float64(time.Second))
+}
 
 type fsmStateReasonType uint8
 
@@ -67,6 +92,9 @@ const (
 	fsmHardReset
 	fsmDeConfigured
 	fsmBadPeerAS
+	// ResetPeer. BGPNotification is the NOTIFICATION sent to the peer, or
+	// nil if the session had no connection to send it on.
+	fsmAdminReset
 )
 
 type fsmStateReason struct {
@@ -139,6 +167,11 @@ func (r fsmStateReason) String() string {
 		return "hard-reset"
 	case fsmBadPeerAS:
 		return "bad-peer-as"
+	case fsmAdminReset:
+		if n := r.BGPNotification; n != nil {
+			return fmt.Sprintf("notification-sent %s", bgp.NewNotificationErrorCode(n.ErrorCode, n.ErrorSubcode).String())
+		}
+		return "admin-reset"
 	default:
 		return "unknown"
 	}
@@ -167,7 +200,12 @@ type fsmOutgoingMsg struct {
 
 const (
 	holdtimeOpensent = 240
-	holdtimeIdle     = 5
+
+	// The idle hold time backs off like the start timer of FRR: it starts
+	// at 1 second, doubles each time a session ends with a NOTIFICATION,
+	// and goes back to 1 second when a session reaches Established.
+	idleHoldTimeInitial = 1
+	idleHoldTimeMax     = 120
 )
 
 type adminState int32
@@ -210,6 +248,10 @@ func (s *fsmState) Load() bgp.FSMState {
 
 func (s *fsmState) Store(state bgp.FSMState) {
 	s.val.Store(int32(state))
+}
+
+func (s *fsmState) CompareAndSwap(old, new bgp.FSMState) bool {
+	return s.val.CompareAndSwap(int32(old), int32(new))
 }
 
 type adminStateRaw struct {
@@ -261,9 +303,16 @@ type outgoingConnManager struct {
 	wg     sync.WaitGroup
 	fsm    *fsm
 	state  fsmState
+	// notif closes a connection on which the OPEN was sent, when the
+	// manager is stopped. nil means just close it. stop() sets it before
+	// it cancels ctx. It is atomic because ctx can also be canceled by its
+	// parent.
+	notif atomic.Pointer[bgp.BGPMessage]
 }
 
-func newOutGoingConnManager(ctx context.Context, fsm *fsm) *outgoingConnManager {
+// newOutGoingConnManager starts a manager that connects to the peer after
+// delay.
+func newOutGoingConnManager(ctx context.Context, fsm *fsm, delay time.Duration) *outgoingConnManager {
 	cctx, cancel := context.WithCancel(ctx)
 	ocm := &outgoingConnManager{
 		ctx:    cctx,
@@ -272,12 +321,12 @@ func newOutGoingConnManager(ctx context.Context, fsm *fsm) *outgoingConnManager 
 	}
 	ocm.state.Store(bgp.BGP_FSM_CONNECT)
 	ocm.wg.Add(1)
-	go ocm.run(fsm.outgoingConnCh)
+	go ocm.run(fsm.outgoingConnCh, delay)
 
 	return ocm
 }
 
-func (ocm *outgoingConnManager) run(ch chan<- outgoingConn) {
+func (ocm *outgoingConnManager) run(ch chan<- outgoingConn, delay time.Duration) {
 	defer func() {
 		ocm.wg.Done()
 		ocm.cancel()
@@ -294,13 +343,28 @@ func (ocm *outgoingConnManager) run(ch chan<- outgoingConn) {
 	var conn net.Conn
 	for {
 		switch ocm.state.Load() {
+		case bgp.BGP_FSM_IDLE:
+			// opensent() took the manager over to stop it.
+			return
 		case bgp.BGP_FSM_CONNECT:
-			conn = ocm.fsm.h.connectLoop(ocm.ctx)
+			conn = ocm.fsm.h.connectLoop(ocm.ctx, delay)
+			// We come back here only when this connection failed, so
+			// the next attempt is a retry.
+			delay = connectRetryDelay(minConnectRetryInterval)
 			if ocm.ctx.Err() != nil {
 				// right after connectLoop() returns a connection, the context may be canceled.
 				if conn != nil {
 					conn.Close()
 				}
+				return
+			}
+			// Move to OpenSent before the OPEN goes out. opensent()
+			// stops the manager only while it is in Connect, with the
+			// same compare-and-swap. So the manager is never stopped
+			// after it sent its OPEN: the peer may keep this connection
+			// when it resolves a collision.
+			if !ocm.state.CompareAndSwap(bgp.BGP_FSM_CONNECT, bgp.BGP_FSM_OPENSENT) {
+				conn.Close()
 				return
 			}
 
@@ -315,11 +379,11 @@ func (ocm *outgoingConnManager) run(ch chan<- outgoingConn) {
 			conn.SetWriteDeadline(time.Now().Add(time.Second))
 			if _, err := conn.Write(b); err != nil {
 				conn.Close()
+				ocm.state.Store(bgp.BGP_FSM_CONNECT)
 				continue
 			}
 			fsm.bgpMessageStateUpdate(bgp.BGP_MSG_OPEN, false)
 			fsm.logger.Debug("outgoing connection established")
-			ocm.state.Store(bgp.BGP_FSM_OPENSENT)
 		case bgp.BGP_FSM_OPENSENT:
 			recvCh := make(chan *fsmMsg, 1)
 			reasonCh := make(chan fsmStateReason, 1)
@@ -339,8 +403,12 @@ func (ocm *outgoingConnManager) run(ch chan<- outgoingConn) {
 			case <-ocm.ctx.Done():
 				holdTimer.Stop()
 				conn.SetReadDeadline(time.Now())
-				conn.Close()
 				wg.Wait()
+				if notif := ocm.notif.Load(); notif != nil {
+					_ = fsm.sendNotification(conn, notif)
+				} else {
+					conn.Close()
+				}
 				return
 			case reason := <-reasonCh:
 				holdTimer.Stop()
@@ -375,18 +443,60 @@ func (ocm *outgoingConnManager) run(ch chan<- outgoingConn) {
 	}
 }
 
-func (ocm *outgoingConnManager) stop() {
+// adminResetNotification returns the NOTIFICATION that ResetPeer sends.
+func adminResetNotification(communication []byte) *bgp.BGPMessage {
+	return bgp.NewBGPNotificationMessage(bgp.BGP_ERROR_CEASE, bgp.BGP_ERROR_SUB_ADMINISTRATIVE_RESET, communication)
+}
+
+// stopOutgoingConnMgr stops the outgoing connection manager, if any. A
+// connection on which it sent its OPEN is closed with notif.
+func (fsm *fsm) stopOutgoingConnMgr(notif *bgp.BGPMessage) {
+	if fsm.outgoingConnMgr != nil {
+		fsm.outgoingConnMgr.stop(notif)
+	}
+}
+
+// stop stops the manager. A connection on which the OPEN was sent is closed
+// with notif, or just closed if notif is nil.
+func (ocm *outgoingConnManager) stop(notif *bgp.BGPMessage) {
+	ocm.notif.Store(notif)
 	ocm.cancel()
 	ocm.wg.Wait()
 	// drain
 	for {
 		select {
 		case c := <-ocm.fsm.outgoingConnCh:
-			c.conn.Close()
+			if notif != nil {
+				_ = ocm.fsm.sendNotification(c.conn, notif)
+			} else {
+				c.conn.Close()
+			}
 		default:
 			return
 		}
 	}
+}
+
+// keepForIdle is called when the session goes to Idle. It stops the manager,
+// unless the manager has a connection on which it sent its OPEN, or one that
+// it left in fsm.outgoingConnCh. Returns true if it has such a connection.
+func (ocm *outgoingConnManager) keepForIdle() bool {
+	ch := ocm.fsm.outgoingConnCh
+	if len(ch) > 0 {
+		return true
+	}
+	if ocm.ctx.Err() != nil {
+		// The manager has returned. If it returned after it sent a
+		// connection, the connection is in the channel now.
+		return len(ch) > 0
+	}
+	// Take the manager over like opensent() does, so that a manager that
+	// sent its OPEN is never stopped here.
+	if ocm.state.CompareAndSwap(bgp.BGP_FSM_CONNECT, bgp.BGP_FSM_IDLE) {
+		ocm.stop(nil)
+		return false
+	}
+	return ocm.state.Load() == bgp.BGP_FSM_OPENSENT
 }
 
 type pConfAccess struct {
@@ -459,6 +569,7 @@ type fsm struct {
 	outgoingCh               *channels.InfiniteChannel
 	notification             chan *bgp.BGPMessage
 	deconfiguredNotification chan *bgp.BGPMessage
+	resetCh                  chan []byte // ResetPeer, with the communication
 	connCh                   chan net.Conn
 	adminState               adminStateRaw
 	adminStateCh             chan adminStateOperation
@@ -476,7 +587,8 @@ type fsm struct {
 
 	// only loop goroutine accesses; no lock required
 	outgoingConnMgr   *outgoingConnManager
-	idleHoldTime      float64
+	idleHoldTime      float64 // for the current or next Idle state
+	idleHoldBackoff   float64
 	opensentHoldTime  float64 // imutable
 	twoByteAsTrans    bool
 	isEBGP            bool
@@ -498,8 +610,8 @@ func (fsm *fsm) tryReceiveOutgoingConn() (outgoingConn, bool) {
 	}
 }
 
-// resolveCollision resolves connection collision according to RFC 4271 Section 6.8
-// and RFC 6286 Section 2.3.
+// isDominant compares the BGP Identifiers for connection collision according
+// to RFC 4271 Section 6.8 and RFC 6286 Section 2.3.
 // Returns true if active connection should be used, false if passive connection should be used.
 func (fsm *fsm) isDominant(open *bgp.BGPOpen) bool {
 	fsm.lock.Lock()
@@ -520,6 +632,24 @@ func (fsm *fsm) isDominant(open *bgp.BGPOpen) bool {
 		return true
 	}
 
+	return false
+}
+
+// resolveCollision decides which of the two colliding connections is kept.
+// open is the OPEN message from the peer. The connection that is not kept is
+// closed with Cease/Connection Collision Resolution. RFC 4271 Section 6.8
+// says: "Closing the BGP connection (that results from the collision
+// resolution procedure) is accomplished by sending the NOTIFICATION message
+// with the Error Code Cease." Returns true if the outgoing connection is kept.
+func (fsm *fsm) resolveCollision(open *bgp.BGPOpen, incoming, outgoing net.Conn) bool {
+	notif := bgp.NewBGPNotificationMessage(bgp.BGP_ERROR_CEASE, bgp.BGP_ERROR_SUB_CONNECTION_COLLISION_RESOLUTION, nil)
+	if fsm.isDominant(open) {
+		fsm.logger.Debug("collision detected: dominant on active side, close the incoming connection")
+		_ = fsm.sendNotification(incoming, notif)
+		return true
+	}
+	fsm.logger.Debug("collision detected: dominant on passive side, close the outgoing connection")
+	_ = fsm.sendNotification(outgoing, notif)
 	return false
 }
 
@@ -612,11 +742,13 @@ func newFSM(gConf *oc.Global, pConf *oc.Neighbor, state bgp.FSMState, logger *sl
 		outgoingCh:               channels.NewInfiniteChannel(),
 		connCh:                   make(chan net.Conn, 1),
 		opensentHoldTime:         float64(holdtimeOpensent),
+		idleHoldBackoff:          idleHoldTimeInitial,
 		adminStateCh:             make(chan adminStateOperation, 1),
 		capMap:                   make(map[bgp.BGPCapabilityCode][]bgp.ParameterCapabilityInterface),
 		gracefulRestartTimer:     time.NewTimer(time.Hour),
 		notification:             make(chan *bgp.BGPMessage, 1),
 		deconfiguredNotification: make(chan *bgp.BGPMessage, 1),
+		resetCh:                  make(chan []byte, 1),
 		outgoingConnCh:           make(chan outgoingConn, 1),
 		logger:                   logger,
 	}
@@ -831,13 +963,6 @@ func (fsm *fsm) sendNotification(conn net.Conn, msg *bgp.BGPMessage) error {
 			slog.Int("Subcode", int(body.ErrorSubcode)),
 			slog.String("Communicated-Reason", communication),
 			slog.Any("Data", rest))
-
-		if body.ErrorSubcode == bgp.BGP_ERROR_SUB_ADMINISTRATIVE_RESET {
-			fsm.lock.Lock()
-			conf := fsm.pConf.ReadOnly()
-			fsm.idleHoldTime = conf.Timers.Config.IdleHoldTimeAfterReset
-			fsm.lock.Unlock()
-		}
 	} else {
 		fsm.logger.Info("sent notification",
 			slog.String("State", fsm.state.String()),
@@ -883,6 +1008,25 @@ type fsmHandler struct {
 	callback      fsmCallback
 }
 
+// nextIdleHoldTime returns the idle hold time of the Idle state that the
+// session enters for reason, and the new backoff value. backoff is the
+// current backoff value, and afterReset is idle-hold-time-after-reset.
+func nextIdleHoldTime(backoff, afterReset float64, reason *fsmStateReason) (float64, float64) {
+	switch reason.Type {
+	case fsmAdminDown:
+		// The session stays in Idle until the admin state goes up. Then
+		// it starts again like a new session.
+		return idleHoldTimeInitial, idleHoldTimeInitial
+	case fsmAdminReset:
+		return afterReset, idleHoldTimeInitial
+	case fsmNotificationSent, fsmNotificationRecv, fsmHardReset, fsmHoldTimerExpired, fsmInvalidMsg, fsmBadPeerAS:
+		backoff = min(backoff*2, idleHoldTimeMax)
+	}
+	// The other reasons, for example a closed TCP connection, keep the
+	// current value.
+	return backoff, backoff
+}
+
 func (h *fsmHandler) idle(ctx context.Context) (bgp.FSMState, *fsmStateReason) {
 	fsm := h.fsm
 
@@ -909,12 +1053,19 @@ func (h *fsmHandler) idle(ctx context.Context) (bgp.FSMState, *fsmStateReason) {
 		case <-idleHoldTimer.C:
 			if fsm.adminState.Load() == adminStateUp {
 				fsm.logger.Debug("IdleHoldTimer expired", slog.String("State", fsm.state.String()), slog.Int("Duration", int(fsm.idleHoldTime)))
-				fsm.idleHoldTime = holdtimeIdle
 				return bgp.BGP_FSM_ACTIVE, newfsmStateReason(fsmIdleTimerExpired, nil, nil)
 			} else {
 				fsm.logger.Debug("IdleHoldTimer expired, but stay at idle because the admin state is DOWN", slog.String("State", fsm.state.String()))
 			}
 
+		case <-fsm.resetCh:
+			// ResetPeer. Like FRR, ignore it while the peer is
+			// administratively down.
+			if fsm.adminState.Load() == adminStateUp {
+				conf := fsm.pConf.ReadOnly()
+				fsm.idleHoldTime, fsm.idleHoldBackoff = nextIdleHoldTime(fsm.idleHoldBackoff, conf.Timers.Config.IdleHoldTimeAfterReset, newfsmStateReason(fsmAdminReset, nil, nil))
+				idleHoldTimer.Reset(time.Second * time.Duration(fsm.idleHoldTime))
+			}
 		case stateOp := <-fsm.adminStateCh:
 			err := h.changeadminState(stateOp.State)
 			if err == nil {
@@ -932,7 +1083,9 @@ func (h *fsmHandler) idle(ctx context.Context) (bgp.FSMState, *fsmStateReason) {
 	}
 }
 
-func (h *fsmHandler) connectLoop(ctx context.Context) net.Conn {
+// connectLoop connects to the peer after delay, and retries until it
+// succeeds or ctx is canceled.
+func (h *fsmHandler) connectLoop(ctx context.Context, delay time.Duration) net.Conn {
 	fsm := h.fsm
 
 	retryInterval, addr, port, password, ttl, ttlMin, mss, localAddress, localPort, bindInterface, tos := func() (int, netip.Addr, int, string, uint8, uint8, uint16, string, int, string, uint8) {
@@ -964,9 +1117,8 @@ func (h *fsmHandler) connectLoop(ctx context.Context) net.Conn {
 		return tick, addr, port, password, ttl, ttlMin, conf.Transport.Config.TcpMss, conf.Transport.Config.LocalAddress.String(), int(conf.Transport.Config.LocalPort), conf.Transport.Config.BindInterface, tos
 	}()
 
-	tick := minConnectRetryInterval
 	for {
-		timer := time.NewTimer(time.Duration((0.75+rand.Float64()*0.25)*float64(tick)*1000) * time.Millisecond)
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
 			fsm.logger.Debug("stop connect loop")
@@ -1019,7 +1171,7 @@ func (h *fsmHandler) connectLoop(ctx context.Context) net.Conn {
 				fsm.logger.Debug("failed to connect", slog.String("Error", err.Error()))
 			}
 		}
-		tick = retryInterval
+		delay = connectRetryDelay(retryInterval)
 	}
 }
 
@@ -1028,7 +1180,7 @@ func (h *fsmHandler) active(ctx context.Context) (bgp.FSMState, *fsmStateReason)
 
 	if fsm.outgoingConnMgr == nil || fsm.outgoingConnMgr.ctx.Err() != nil {
 		fsm.logger.Info("starting outgoing connection manager")
-		fsm.outgoingConnMgr = newOutGoingConnManager(ctx, fsm)
+		fsm.outgoingConnMgr = newOutGoingConnManager(ctx, fsm, firstConnectDelay())
 	}
 
 	for {
@@ -1065,13 +1217,22 @@ func (h *fsmHandler) active(ctx context.Context) (bgp.FSMState, *fsmStateReason)
 				result.conn.Close()
 				fsm.logger.Warn("failed to send keepalive on outgoing connection", slog.String("Error", err.Error()))
 				// the manager was stopped, restart it
-				fsm.outgoingConnMgr = newOutGoingConnManager(ctx, fsm)
+				fsm.outgoingConnMgr = newOutGoingConnManager(ctx, fsm, connectRetryDelay(minConnectRetryInterval))
 			} else {
 				fsm.bgpMessageStateUpdate(bgp.BGP_MSG_KEEPALIVE, false)
 				fsm.lock.Lock()
 				fsm.conn = result.conn
 				fsm.recvOpen = result.open
 				fsm.lock.Unlock()
+
+				// The manager that sent this connection has returned, but
+				// this function may have started a new one above, when it
+				// found the old one done. The session now uses our own
+				// connection, so another outgoing connection is not
+				// needed. openconfirm() relies on this: an outgoing
+				// connection that it receives always collides with an
+				// incoming one.
+				fsm.outgoingConnMgr.stop(nil)
 
 				return bgp.BGP_FSM_OPENCONFIRM, newfsmStateReason(fsmOpenMsgReceived, nil, nil)
 			}
@@ -1082,6 +1243,11 @@ func (h *fsmHandler) active(ctx context.Context) (bgp.FSMState, *fsmStateReason)
 				fsm.logger.Warn("graceful restart timer expired", slog.String("State", fsm.state.String()))
 				return bgp.BGP_FSM_IDLE, newfsmStateReason(fsmRestartTimerExpired, nil, nil)
 			}
+		case communication := <-fsm.resetCh:
+			// ResetPeer. There is no connection to send the
+			// NOTIFICATION on, except the one of the manager.
+			fsm.stopOutgoingConnMgr(adminResetNotification(communication))
+			return bgp.BGP_FSM_IDLE, newfsmStateReason(fsmAdminReset, nil, nil)
 		case stateOp := <-fsm.adminStateCh:
 			err := h.changeadminState(stateOp.State)
 			if err == nil {
@@ -1236,15 +1402,25 @@ func capabilitiesFromConfig(pConf *oc.Neighbor) []bgp.ParameterCapabilityInterfa
 		}
 	}
 
-	// Extended Nexthop Capability (Code 5)
+	// Extended Nexthop Capability (Code 5). RFC 8950 Section 4:
+	//
+	//   Since this document only concerns itself with the advertisement of
+	//   IPv4 NLRI and VPN-IPv4 NLRI with an IPv6 next hop, this specification
+	//   only allows the following values in the Capability Value field of the
+	//   Extended Next Hop Encoding capability:
+	//
+	//   *  NLRI AFI = 1 (IPv4)
+	//
+	//   *  NLRI SAFI = 1, 2, 4, 128, or 129
+	//
+	//   *  Nexthop AFI = 2 (IPv6)
 	tuples := []*bgp.CapExtendedNexthopTuple{}
 	families, _ := oc.AfiSafis(pConf.AfiSafis).ToRfList()
 	for _, family := range families {
-		if family == bgp.RF_IPv6_UC {
-			continue
+		switch family {
+		case bgp.RF_IPv4_UC, bgp.RF_IPv4_MC, bgp.RF_IPv4_MPLS, bgp.RF_IPv4_VPN, bgp.RF_IPv4_VPN_MC:
+			tuples = append(tuples, bgp.NewCapExtendedNexthopTuple(family, bgp.AFI_IP6))
 		}
-		tuple := bgp.NewCapExtendedNexthopTuple(family, bgp.AFI_IP6)
-		tuples = append(tuples, tuple)
 	}
 	if len(tuples) != 0 {
 		caps = append(caps, bgp.NewCapExtendedNexthop(tuples))
@@ -1526,6 +1702,14 @@ func (fsm *fsm) handleOpen(fmsg *fsmMsg) (bgp.FSMState, *fsmStateReason, *bgp.BG
 			}
 			return bgp.BGP_FSM_OPENCONFIRM, newfsmStateReason(fsmOpenMsgReceived, nil, nil), nil
 		}
+		// RFC 4271 8.2.2: a NOTIFICATION with a version error (Event 24)
+		// in OpenSent gets no answer. The connection is just dropped.
+		if m.Header.Type == bgp.BGP_MSG_NOTIFICATION {
+			body := m.Body.(*bgp.BGPNotification)
+			if body.ErrorCode == bgp.BGP_ERROR_OPEN_MESSAGE_ERROR && body.ErrorSubcode == bgp.BGP_ERROR_SUB_UNSUPPORTED_VERSION_NUMBER {
+				return bgp.BGP_FSM_IDLE, newfsmStateReason(fsmNotificationRecv, body, nil), nil
+			}
+		}
 		notif := bgp.NewBGPNotificationMessage(bgp.BGP_ERROR_FSM_ERROR, 1, nil)
 		return bgp.BGP_FSM_IDLE, newfsmStateReason(fsmInvalidMsg, notificationBody(notif), nil), notif
 	case *bgp.MessageError:
@@ -1596,19 +1780,11 @@ func (h *fsmHandler) opensent(ctx context.Context) (bgp.FSMState, *fsmStateReaso
 
 			if outConn, ok := fsm.tryReceiveOutgoingConn(); ok {
 				// collision detected
-				isDominant := fsm.isDominant(m.Body.(*bgp.BGPOpen))
-				if isDominant {
-					// close the incoming connection
-					fsm.logger.Debug("collision detected: dominant on active side, close the incoming connection")
-					fsm.conn.Close()
+				if fsm.resolveCollision(m.Body.(*bgp.BGPOpen), fsm.conn, outConn.conn) {
 					fsm.conn = outConn.conn
 					fsm.lock.Lock()
 					fsm.recvOpen = outConn.open
 					fsm.lock.Unlock()
-				} else {
-					// close the outgoing connection
-					fsm.logger.Debug("collision detected: dominant on passive side, close the outgoing connection")
-					outConn.conn.Close()
 				}
 			}
 
@@ -1618,45 +1794,46 @@ func (h *fsmHandler) opensent(ctx context.Context) (bgp.FSMState, *fsmStateReaso
 				fsm.conn.Close()
 				return bgp.BGP_FSM_IDLE, newfsmStateReason(fsmWriteFailed, nil, nil)
 			}
-			// stop to try to connect.
-			if fsm.outgoingConnMgr.state.Load() == bgp.BGP_FSM_CONNECT {
-				fsm.outgoingConnMgr.stop()
+			// Stop trying to connect, unless the manager has moved to
+			// OpenSent to send its OPEN (see outgoingConnManager.run()).
+			if fsm.outgoingConnMgr.state.CompareAndSwap(bgp.BGP_FSM_CONNECT, bgp.BGP_FSM_IDLE) {
+				fsm.outgoingConnMgr.stop(nil)
 			}
 
 			fsm.bgpMessageStateUpdate(bgp.BGP_MSG_KEEPALIVE, false)
 			return bgp.BGP_FSM_OPENCONFIRM, newfsmStateReason(fsmOpenMsgReceived, nil, nil)
 		case result := <-fsm.outgoingConnCh:
-			incomingConn := fsm.conn
-			fsm.conn = result.conn
+			// The peer's OPEN arrived on our own connection, while the
+			// incoming connection waits for the peer's OPEN. RFC 4271
+			// Section 6.8 says: "A BGP speaker MAY also examine
+			// connections in an OpenSent state if it knows the BGP
+			// Identifier of the peer by means outside of the protocol."
+			// Read literally, an OPEN on the other connection is not a
+			// means outside of the protocol. We still use it, like FRR
+			// does: both connections are with the same peer, so its BGP
+			// Identifier is known. Resolve the collision now.
+			if !fsm.resolveCollision(result.open.Body.(*bgp.BGPOpen), fsm.conn, result.conn) {
+				// The incoming connection is kept. Stay in OpenSent
+				// and wait for the peer's OPEN on it.
+				continue
+			}
+			// resolveCollision closed the incoming connection. Its recv
+			// goroutine ends with a read error; drop what it reported.
+			wg.Wait()
+			select {
+			case <-recvChan:
+			default:
+			}
+			select {
+			case <-reasonCh:
+			default:
+			}
+
 			fsm.lock.Lock()
+			fsm.conn = result.conn
 			fsm.recvOpen = result.open
 			fsm.lock.Unlock()
 
-			var e *fsmMsg
-			select {
-			case e = <-recvChan:
-			default:
-			}
-			if e != nil {
-				nextState, _, _ := fsm.handleOpen(e)
-				if nextState == bgp.BGP_FSM_OPENCONFIRM {
-					// collision detected
-					isDominant := fsm.isDominant(result.open.Body.(*bgp.BGPOpen))
-					if isDominant {
-						// close the incoming connection
-						fsm.logger.Debug("collision detected: dominant on active side, close the incoming connection")
-						incomingConn.Close()
-					} else {
-						// close the outgoing connection
-						fsm.logger.Debug("collision detected: dominant on passive side, close the outgoing connection")
-						result.conn.Close()
-						fsm.conn = incomingConn
-						fsm.lock.Lock()
-						fsm.recvOpen = e.MsgData.(*bgp.BGPMessage)
-						fsm.lock.Unlock()
-					}
-				}
-			}
 			b, _ := bgp.NewBGPKeepAliveMessage().Serialize()
 			fsm.conn.SetWriteDeadline(time.Now().Add(time.Second))
 			if _, err := fsm.conn.Write(b); err != nil {
@@ -1673,6 +1850,11 @@ func (h *fsmHandler) opensent(ctx context.Context) (bgp.FSMState, *fsmStateReaso
 			m := bgp.NewBGPNotificationMessage(bgp.BGP_ERROR_HOLD_TIMER_EXPIRED, 0, nil)
 			_ = fsm.sendNotification(fsm.conn, m)
 			return bgp.BGP_FSM_IDLE, newfsmStateReason(fsmHoldTimerExpired, notificationBody(m), nil)
+		case communication := <-fsm.resetCh:
+			m := adminResetNotification(communication)
+			_ = fsm.sendNotification(fsm.conn, m)
+			fsm.stopOutgoingConnMgr(m)
+			return bgp.BGP_FSM_IDLE, newfsmStateReason(fsmAdminReset, notificationBody(m), nil)
 		case stateOp := <-fsm.adminStateCh:
 			err := h.changeadminState(stateOp.State)
 			if err == nil {
@@ -1725,18 +1907,16 @@ func (h *fsmHandler) openconfirm(ctx context.Context) (bgp.FSMState, *fsmStateRe
 		fsm.conn.SetReadDeadline(time.Time{})
 	}()
 
-	fsm.lock.Lock()
-	var holdTimer *time.Timer
-	conf := fsm.pConf.ReadCopy()
-	if conf.Timers.State.NegotiatedHoldTime == 0 {
-		holdTimer = &time.Timer{}
-	} else {
+	newHoldTimer := func() *time.Timer {
+		conf := fsm.pConf.ReadOnly()
+		if conf.Timers.State.NegotiatedHoldTime == 0 {
+			return &time.Timer{}
+		}
 		// RFC 4271 P.65
 		// sets the HoldTimer according to the negotiated value
-		holdTimer = time.NewTimer(time.Second * time.Duration(conf.Timers.State.NegotiatedHoldTime))
+		return time.NewTimer(time.Second * time.Duration(conf.Timers.State.NegotiatedHoldTime))
 	}
-	fsm.pConf.Update(&conf)
-	fsm.lock.Unlock()
+	holdTimer := newHoldTimer()
 
 	for {
 		select {
@@ -1749,6 +1929,46 @@ func (h *fsmHandler) openconfirm(ctx context.Context) (bgp.FSMState, *fsmStateRe
 			}
 			conn.Close()
 			fsm.logger.Warn("Closed an accepted connection", slog.String("State", fsm.state.String()))
+		case result := <-fsm.outgoingConnCh:
+			// The peer's OPEN arrived on our own connection while the
+			// incoming connection is in OpenConfirm. RFC 4271 Section 6.8
+			// says: "Upon receipt of an OPEN message, the local system
+			// MUST examine all of its connections that are in the
+			// OpenConfirm state."
+			if !fsm.resolveCollision(result.open.Body.(*bgp.BGPOpen), fsm.conn, result.conn) {
+				continue
+			}
+			// resolveCollision closed the incoming connection. Its recv
+			// goroutine ends with a read error; drop what it reported.
+			wg.Wait()
+			select {
+			case <-recvChan:
+			default:
+			}
+			select {
+			case <-reasonCh:
+			default:
+			}
+
+			fsm.lock.Lock()
+			fsm.conn = result.conn
+			fsm.recvOpen = result.open
+			fsm.lock.Unlock()
+
+			b, _ := bgp.NewBGPKeepAliveMessage().Serialize()
+			fsm.conn.SetWriteDeadline(time.Now().Add(time.Second))
+			if _, err := fsm.conn.Write(b); err != nil {
+				fsm.conn.Close()
+				fsm.logger.Warn("failed to send keepalive on outgoing connection", slog.String("Error", err.Error()))
+				return bgp.BGP_FSM_IDLE, newfsmStateReason(fsmWriteFailed, nil, nil)
+			}
+			fsm.bgpMessageStateUpdate(bgp.BGP_MSG_KEEPALIVE, false)
+
+			wg.Add(1)
+			go h.recvMessage(ctx, fsm.conn, recvChan, reasonCh, wg)
+			// The old hold timer is not stopped. Its channel is no longer
+			// read, and the timer for hold time zero cannot be stopped.
+			holdTimer = newHoldTimer()
 		case <-fsm.gracefulRestartTimer.C:
 			conf := fsm.pConf.ReadOnly()
 			restarting := conf.GracefulRestart.State.PeerRestarting
@@ -1791,6 +2011,11 @@ func (h *fsmHandler) openconfirm(ctx context.Context) (bgp.FSMState, *fsmStateRe
 			m := bgp.NewBGPNotificationMessage(bgp.BGP_ERROR_HOLD_TIMER_EXPIRED, 0, nil)
 			_ = fsm.sendNotification(fsm.conn, m)
 			return bgp.BGP_FSM_IDLE, newfsmStateReason(fsmHoldTimerExpired, notificationBody(m), nil)
+		case communication := <-fsm.resetCh:
+			m := adminResetNotification(communication)
+			_ = fsm.sendNotification(fsm.conn, m)
+			fsm.stopOutgoingConnMgr(m)
+			return bgp.BGP_FSM_IDLE, newfsmStateReason(fsmAdminReset, notificationBody(m), nil)
 		case stateOp := <-fsm.adminStateCh:
 			err := h.changeadminState(stateOp.State)
 			if err == nil {
@@ -1983,6 +2208,9 @@ func (h *fsmHandler) recvMessageloop(ctx context.Context, conn net.Conn, holdtim
 						}
 					}
 
+					if !h.fsm.twoByteAsTrans {
+						table.DiscardAs4Attrs(body)
+					}
 					table.UpdatePathAttrs4ByteAs(h.fsm.logger, body)
 
 					if err = table.UpdatePathAggregator4ByteAs(body); err != nil {
@@ -2163,6 +2391,10 @@ func (h *fsmHandler) established(ctx context.Context) (bgp.FSMState, *fsmStateRe
 			if conf.Timers.State.NegotiatedHoldTime != 0 {
 				holdTimer.Reset(time.Second * time.Duration(conf.Timers.State.NegotiatedHoldTime))
 			}
+		case communication := <-fsm.resetCh:
+			m := convertNotification(adminResetNotification(communication))
+			_ = fsm.sendNotification(fsm.conn, m)
+			return bgp.BGP_FSM_IDLE, newfsmStateReason(fsmAdminReset, notificationBody(m), nil)
 		case stateOp := <-fsm.adminStateCh:
 			err := h.changeadminState(stateOp.State)
 			if err == nil {
@@ -2208,7 +2440,7 @@ func (h *fsmHandler) loop(ctx context.Context, wg *sync.WaitGroup) {
 			remoteAddr, _ := netip.AddrFromSlice(remoteTCP.IP)
 			localTCP := fsm.conn.LocalAddr().(*net.TCPAddr)
 			localAddr, _ := netip.AddrFromSlice(localTCP.IP)
-			h.allowLoopback = remoteAddr.Is4() && localAddr.Is4() && remoteAddr.IsLoopback() && localAddr.IsLoopback()
+			h.allowLoopback = remoteAddr.IsLoopback() && localAddr.IsLoopback()
 
 			nextState, reason = h.established(ctx)
 		}
@@ -2226,12 +2458,40 @@ func (h *fsmHandler) loop(ctx context.Context, wg *sync.WaitGroup) {
 		switch reason.Type {
 		case fsmAdminDown, fsmGracefulRestart:
 			if fsm.outgoingConnMgr != nil {
-				fsm.outgoingConnMgr.stop()
+				fsm.outgoingConnMgr.stop(nil)
 			}
 		}
 
 		if ctx.Err() != nil {
 			break
+		}
+
+		switch nextState {
+		case bgp.BGP_FSM_IDLE:
+			if fsm.outgoingConnMgr != nil && fsm.outgoingConnMgr.keepForIdle() {
+				// Our own connection is still in progress, so only the
+				// other connection failed. Leave Idle at once, so that
+				// active() takes our connection, and keep the backoff.
+				// Otherwise keepForIdle() stopped the manager: in Idle
+				// we make no connection to the peer.
+				fsm.idleHoldTime = 0
+			} else {
+				conf := fsm.pConf.ReadOnly()
+				fsm.idleHoldTime, fsm.idleHoldBackoff = nextIdleHoldTime(fsm.idleHoldBackoff, conf.Timers.Config.IdleHoldTimeAfterReset, reason)
+			}
+		case bgp.BGP_FSM_ESTABLISHED:
+			fsm.idleHoldBackoff = idleHoldTimeInitial
+			// The manager may still run: it sent its OPEN before the
+			// incoming connection got the peer's OPEN, so opensent() did
+			// not stop it. Stop it now, or it opens connections to the
+			// peer while the session is established. RFC 4271 Section 6.8
+			// says: "Unless allowed via configuration, a connection
+			// collision with an existing BGP connection that is in the
+			// Established state causes closing of the newly created
+			// connection."
+			if fsm.outgoingConnMgr != nil {
+				fsm.outgoingConnMgr.stop(bgp.NewBGPNotificationMessage(bgp.BGP_ERROR_CEASE, bgp.BGP_ERROR_SUB_CONNECTION_COLLISION_RESOLUTION, nil))
+			}
 		}
 
 		h.fsm.stateChange(nextState, reason)

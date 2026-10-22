@@ -1234,6 +1234,33 @@ func Test_UnknownEvpnExtended_RoundTrip(t *testing.T) {
 	assert.Equal(raw, serialized, "round-trip must be byte-for-byte identical")
 }
 
+func Test_ExperimentalExtendedOnlyType0x80Actions(t *testing.T) {
+	// The traffic-rate, traffic-action, traffic-marking and Layer2 Info
+	// sub-types are defined for type 0x80 only. With type 0x81 or 0x82
+	// they are unassigned and must be kept as they are, not decoded as
+	// the type 0x80 community and sent on as one.
+	for _, raw := range [][]byte{
+		{0x81, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+		{0x82, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+		{0x81, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
+		{0x82, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2e},
+		{0x81, 0x0a, 0x13, 0x00, 0x05, 0xdc, 0x00, 0x00},
+	} {
+		t.Run(fmt.Sprintf("%x", raw[:2]), func(t *testing.T) {
+			e, err := ParseExtended(raw)
+			require.NoError(t, err)
+
+			unknown, ok := e.(*UnknownExtended)
+			require.True(t, ok, "expected *UnknownExtended, got %T", e)
+			assert.Equal(t, ExtendedCommunityAttrType(raw[0]), unknown.Type)
+
+			serialized, err := e.Serialize()
+			require.NoError(t, err)
+			assert.Equal(t, raw, serialized)
+		})
+	}
+}
+
 func Test_UnknownIP6Extended_PathAttribute_RoundTrip(t *testing.T) {
 	assert := assert.New(t)
 
@@ -1359,6 +1386,28 @@ func Test_NotificationErrorCode(t *testing.T) {
 	t.Log(NewNotificationErrorCode(BGP_ERROR_MESSAGE_HEADER_ERROR, 0).String())
 	t.Log(NewNotificationErrorCode(0, BGP_ERROR_SUB_BAD_MESSAGE_TYPE).String())
 	t.Log(NewNotificationErrorCode(BGP_ERROR_ROUTE_REFRESH_MESSAGE_ERROR+1, 0).String())
+}
+
+func Test_NotificationErrorCodeCease(t *testing.T) {
+	assert := assert.New(t)
+
+	// IANA "BGP Cease NOTIFICATION message subcodes": 9 is Hard Reset
+	// (RFC 8538) and 10 is BFD Down (RFC 9384).
+	assert.Equal(9, BGP_ERROR_SUB_HARD_RESET)
+	assert.Equal(10, BGP_ERROR_SUB_BFD_DOWN)
+
+	tests := []struct {
+		subcode uint8
+		want    string
+	}{
+		{BGP_ERROR_SUB_OUT_OF_RESOURCES, "code 6(cease) subcode 8(out of resources)"},
+		{BGP_ERROR_SUB_HARD_RESET, "code 6(cease) subcode 9(hard reset)"},
+		{BGP_ERROR_SUB_BFD_DOWN, "code 6(cease) subcode 10(bfd down)"},
+		{BGP_ERROR_SUB_BFD_DOWN + 1, "code 6(cease) subcode 11(undefined)"},
+	}
+	for _, tt := range tests {
+		assert.Equal(tt.want, NewNotificationErrorCode(BGP_ERROR_CEASE, tt.subcode).String())
+	}
 }
 
 func Test_FlowSpecNlriVPN(t *testing.T) {

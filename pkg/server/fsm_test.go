@@ -37,6 +37,7 @@ import (
 	"github.com/osrg/gobgp/v4/pkg/packet/bmp"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type NotificationChannel struct {
@@ -217,6 +218,54 @@ func TestFSMHandlerOpensent_HoldTimerExpired(t *testing.T) {
 	sent, _ := bgp.ParseBGPMessage(lastMsg)
 	assert.Equal(uint8(bgp.BGP_MSG_NOTIFICATION), sent.Header.Type)
 	assert.Equal(uint8(bgp.BGP_ERROR_HOLD_TIMER_EXPIRED), sent.Body.(*bgp.BGPNotification).ErrorCode)
+}
+
+// RFC 4271 8.2.2: in OpenSent, a NOTIFICATION with a version error
+// (Event 24) gets no answer, and any other NOTIFICATION (Event 25) gets
+// a Finite State Machine Error.
+func TestFSMHandlerOpensent_NotificationReceived(t *testing.T) {
+	tests := []struct {
+		name       string
+		code       uint8
+		subcode    uint8
+		wantReason fsmStateReasonType
+		wantAnswer bool
+	}{
+		{"version error", bgp.BGP_ERROR_OPEN_MESSAGE_ERROR, bgp.BGP_ERROR_SUB_UNSUPPORTED_VERSION_NUMBER, fsmNotificationRecv, false},
+		{"other open error", bgp.BGP_ERROR_OPEN_MESSAGE_ERROR, bgp.BGP_ERROR_SUB_BAD_PEER_AS, fsmInvalidMsg, true},
+		{"cease", bgp.BGP_ERROR_CEASE, bgp.BGP_ERROR_SUB_CONNECTION_COLLISION_RESOLUTION, fsmInvalidMsg, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewMockConnection()
+			p, h := makePeerAndHandler(m)
+			t.Cleanup(func() { cleanPeerAndHandler(p, h) })
+			p.fsm.opensentHoldTime = 10
+
+			// net.Pipe writes block until the message is read.
+			go m.PushBgpMessage(bgp.NewBGPNotificationMessage(tt.code, tt.subcode, nil))
+
+			state, reason := h.opensent(t.Context())
+			require.Equal(t, bgp.BGP_FSM_IDLE, state)
+			require.Equal(t, tt.wantReason, reason.Type)
+
+			if !tt.wantAnswer {
+				require.Equal(t, tt.code, reason.BGPNotification.ErrorCode)
+				require.Equal(t, tt.subcode, reason.BGPNotification.ErrorSubcode)
+				require.Never(t, func() bool { return len(m.GetSentMessages()) > 0 },
+					100*time.Millisecond, 10*time.Millisecond)
+				return
+			}
+			require.Eventually(t, func() bool { return len(m.GetSentMessages()) > 0 },
+				time.Second, 10*time.Millisecond)
+			sent, err := bgp.ParseBGPMessage(m.GetSentMessages()[0])
+			require.NoError(t, err)
+			require.Equal(t, uint8(bgp.BGP_MSG_NOTIFICATION), sent.Header.Type)
+			n := sent.Body.(*bgp.BGPNotification)
+			require.Equal(t, uint8(bgp.BGP_ERROR_FSM_ERROR), n.ErrorCode)
+			require.Equal(t, uint8(1), n.ErrorSubcode)
+		})
+	}
 }
 
 func TestFSMHandlerOpenconfirm_HoldTimerExpired(t *testing.T) {
@@ -1890,5 +1939,617 @@ func TestRecvMessageloop_RepeatedMpUnreachAfterTreatAsWithdraw(t *testing.T) {
 		body := n.Body.(*bgp.BGPNotification)
 		assert.Equal(uint8(bgp.BGP_ERROR_UPDATE_MESSAGE_ERROR), body.ErrorCode)
 		assert.Equal(uint8(bgp.BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST), body.ErrorSubcode)
+	}
+}
+
+// The Extended Nexthop capability lists only the IPv4 families of RFC 8950
+// Section 4, not L2VPN EVPN or the IPv6 families.
+func TestCapabilitiesExtendedNexthopIPv4Only(t *testing.T) {
+	var afs []oc.AfiSafi
+	for _, f := range []bgp.Family{bgp.RF_IPv4_UC, bgp.RF_IPv6_UC, bgp.RF_EVPN, bgp.RF_IPv4_MC, bgp.RF_IPv4_VPN, bgp.RF_IPv6_VPN, bgp.RF_IPv4_MPLS, bgp.RF_IPv4_VPN_MC, bgp.RF_FS_IPv4_UC} {
+		afs = append(afs, oc.AfiSafi{State: oc.AfiSafiState{Family: f}})
+	}
+	var got []bgp.Family
+	for _, c := range capabilitiesFromConfig(&oc.Neighbor{AfiSafis: afs}) {
+		if e, ok := c.(*bgp.CapExtendedNexthop); ok {
+			for _, tu := range e.Tuples {
+				require.Equal(t, uint16(bgp.AFI_IP6), tu.NexthopAFI)
+				got = append(got, bgp.NewFamily(tu.NLRIAFI, uint8(tu.NLRISAFI)))
+			}
+		}
+	}
+	require.Equal(t, []bgp.Family{bgp.RF_IPv4_UC, bgp.RF_IPv4_MC, bgp.RF_IPv4_VPN, bgp.RF_IPv4_MPLS, bgp.RF_IPv4_VPN_MC}, got)
+
+	// Without an IPv4 family there is no capability.
+	for _, c := range capabilitiesFromConfig(&oc.Neighbor{AfiSafis: []oc.AfiSafi{{State: oc.AfiSafiState{Family: bgp.RF_EVPN}}}}) {
+		_, ok := c.(*bgp.CapExtendedNexthop)
+		require.False(t, ok, "extended nexthop for L2VPN EVPN only")
+	}
+}
+
+func TestNextIdleHoldTime(t *testing.T) {
+	cease := func(subcode uint8) *bgp.BGPNotification {
+		return &bgp.BGPNotification{ErrorCode: bgp.BGP_ERROR_CEASE, ErrorSubcode: subcode}
+	}
+	holdTimerExpired := &bgp.BGPNotification{ErrorCode: bgp.BGP_ERROR_HOLD_TIMER_EXPIRED}
+
+	const afterReset = 30
+
+	tests := []struct {
+		name        string
+		backoff     float64
+		reason      *fsmStateReason
+		wantHold    float64
+		wantBackoff float64
+	}{
+		{"notification sent doubles", 1, newfsmStateReason(fsmNotificationSent, cease(bgp.BGP_ERROR_SUB_BFD_DOWN), nil), 2, 2},
+		{"notification received doubles", 2, newfsmStateReason(fsmNotificationRecv, cease(bgp.BGP_ERROR_SUB_ADMINISTRATIVE_RESET), nil), 4, 4},
+		{"hard reset received doubles", 1, newfsmStateReason(fsmHardReset, cease(bgp.BGP_ERROR_SUB_HARD_RESET), nil), 2, 2},
+		{"hold timer expired doubles", 4, newfsmStateReason(fsmHoldTimerExpired, holdTimerExpired, nil), 8, 8},
+		{"invalid message doubles", 8, newfsmStateReason(fsmInvalidMsg, nil, nil), 16, 16},
+		{"bad peer AS doubles", 16, newfsmStateReason(fsmBadPeerAS, nil, nil), 32, 32},
+		{"doubling stops at the maximum", 64, newfsmStateReason(fsmNotificationRecv, cease(bgp.BGP_ERROR_SUB_ADMINISTRATIVE_SHUTDOWN), nil), idleHoldTimeMax, idleHoldTimeMax},
+		{"maximum stays", idleHoldTimeMax, newfsmStateReason(fsmNotificationSent, holdTimerExpired, nil), idleHoldTimeMax, idleHoldTimeMax},
+		{"reset uses idle-hold-time-after-reset", 16, newfsmStateReason(fsmAdminReset, cease(bgp.BGP_ERROR_SUB_ADMINISTRATIVE_RESET), nil), afterReset, idleHoldTimeInitial},
+		{"reset sent as hard reset uses idle-hold-time-after-reset", 16, newfsmStateReason(fsmAdminReset, cease(bgp.BGP_ERROR_SUB_HARD_RESET), nil), afterReset, idleHoldTimeInitial},
+		{"reset without a session uses idle-hold-time-after-reset", 16, newfsmStateReason(fsmAdminReset, nil, nil), afterReset, idleHoldTimeInitial},
+		{"admin down goes back to the initial value", 16, newfsmStateReason(fsmAdminDown, nil, nil), idleHoldTimeInitial, idleHoldTimeInitial},
+		{"read failure keeps the value", 4, newfsmStateReason(fsmReadFailed, nil, nil), 4, 4},
+		{"write failure keeps the value", 4, newfsmStateReason(fsmWriteFailed, nil, nil), 4, 4},
+		{"graceful restart keeps the value", 4, newfsmStateReason(fsmGracefulRestart, nil, nil), 4, 4},
+		{"restart timer expiry keeps the value", 4, newfsmStateReason(fsmRestartTimerExpired, nil, nil), 4, 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hold, backoff := nextIdleHoldTime(tt.backoff, afterReset, tt.reason)
+			assert.Equal(t, tt.wantHold, hold)
+			assert.Equal(t, tt.wantBackoff, backoff)
+		})
+	}
+}
+
+// The connection that loses a collision is closed with Cease/Connection
+// Collision Resolution (RFC 4271 Section 6.8), and the other one gets
+// nothing.
+func TestResolveCollision(t *testing.T) {
+	tests := []struct {
+		name         string
+		localID      string
+		remoteID     string
+		wantOutgoing bool
+	}{
+		{"local ID is higher", "10.0.0.9", "10.0.0.1", true},
+		{"remote ID is higher", "10.0.0.1", "10.0.0.9", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			incoming := NewMockConnection()
+			outgoing := NewMockConnection()
+			p, h := makePeerAndHandler(incoming)
+			t.Cleanup(func() {
+				cleanPeerAndHandler(p, h)
+				outgoing.Close()
+			})
+			p.fsm.gConf.Config.RouterId = netip.MustParseAddr(tt.localID)
+
+			open, err := bgp.NewBGPOpenMessage(65002, 90, netip.MustParseAddr(tt.remoteID), nil)
+			require.NoError(t, err)
+
+			keepOutgoing := p.fsm.resolveCollision(open.Body.(*bgp.BGPOpen), incoming, outgoing)
+			require.Equal(t, tt.wantOutgoing, keepOutgoing)
+
+			loser, winner := outgoing, incoming
+			if tt.wantOutgoing {
+				loser, winner = incoming, outgoing
+			}
+			require.Eventually(t, func() bool { return len(loser.GetSentMessages()) > 0 },
+				time.Second, 10*time.Millisecond)
+			sent, err := bgp.ParseBGPMessage(loser.GetSentMessages()[0])
+			require.NoError(t, err)
+			require.Equal(t, uint8(bgp.BGP_MSG_NOTIFICATION), sent.Header.Type)
+			n := sent.Body.(*bgp.BGPNotification)
+			require.Equal(t, uint8(bgp.BGP_ERROR_CEASE), n.ErrorCode)
+			require.Equal(t, uint8(bgp.BGP_ERROR_SUB_CONNECTION_COLLISION_RESOLUTION), n.ErrorSubcode)
+			require.Empty(t, winner.GetSentMessages())
+		})
+	}
+}
+
+// sentMessage waits for the n-th message sent on m and returns it.
+func sentMessage(t *testing.T, m *MockConnection, n int) *bgp.BGPMessage {
+	t.Helper()
+	require.Eventually(t, func() bool { return len(m.GetSentMessages()) > n },
+		time.Second, 10*time.Millisecond)
+	msg, err := bgp.ParseBGPMessage(m.GetSentMessages()[n])
+	require.NoError(t, err)
+	return msg
+}
+
+func requireCollisionCease(t *testing.T, msg *bgp.BGPMessage) {
+	t.Helper()
+	require.Equal(t, uint8(bgp.BGP_MSG_NOTIFICATION), msg.Header.Type)
+	n := msg.Body.(*bgp.BGPNotification)
+	require.Equal(t, uint8(bgp.BGP_ERROR_CEASE), n.ErrorCode)
+	require.Equal(t, uint8(bgp.BGP_ERROR_SUB_CONNECTION_COLLISION_RESOLUTION), n.ErrorSubcode)
+}
+
+// In OpenConfirm on the incoming connection, the peer's OPEN arrives on our
+// own connection. RFC 4271 Section 6.8 requires the collision to be
+// resolved then. openconfirm() used to ignore the outgoing connection, so
+// the session went to Idle when the peer closed the incoming one.
+// https://github.com/osrg/gobgp/issues/3741
+func TestFSMHandlerOpenconfirm_Collision(t *testing.T) {
+	tests := []struct {
+		name         string
+		localID      string
+		remoteID     string
+		wantOutgoing bool
+	}{
+		{"local ID is higher", "10.0.0.9", "10.0.0.1", true},
+		{"remote ID is higher", "10.0.0.1", "10.0.0.9", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			incoming := NewMockConnection()
+			outgoing := NewMockConnection()
+			p, h := makePeerAndHandler(incoming)
+			t.Cleanup(func() {
+				cleanPeerAndHandler(p, h)
+				incoming.Close()
+				outgoing.Close()
+			})
+			p.fsm.gConf.Config.RouterId = netip.MustParseAddr(tt.localID)
+
+			open, err := bgp.NewBGPOpenMessage(65002, 90, netip.MustParseAddr(tt.remoteID), nil)
+			require.NoError(t, err)
+			p.fsm.outgoingConnCh <- outgoingConn{conn: outgoing, open: open}
+
+			type result struct {
+				state  bgp.FSMState
+				reason *fsmStateReason
+			}
+			done := make(chan result, 1)
+			go func() {
+				state, reason := h.openconfirm(t.Context())
+				done <- result{state, reason}
+			}()
+
+			loser, winner := outgoing, incoming
+			if tt.wantOutgoing {
+				loser, winner = incoming, outgoing
+			}
+			requireCollisionCease(t, sentMessage(t, loser, 0))
+			if tt.wantOutgoing {
+				// openconfirm() answers the OPEN on our connection.
+				msg := sentMessage(t, winner, 0)
+				require.Equal(t, uint8(bgp.BGP_MSG_KEEPALIVE), msg.Header.Type)
+			}
+
+			go winner.PushBgpMessage(bgp.NewBGPKeepAliveMessage())
+			select {
+			case r := <-done:
+				require.Equal(t, bgp.BGP_FSM_ESTABLISHED, r.state)
+			case <-time.After(5 * time.Second):
+				t.Fatal("the FSM state function did not return")
+			}
+			require.Same(t, winner, p.fsm.conn)
+			if tt.wantOutgoing {
+				require.Same(t, open, p.fsm.recvOpen)
+			}
+		})
+	}
+}
+
+// active() can start a new outgoing connection manager and then take the
+// connection that the previous manager left. The new manager must not keep
+// running: it would open another connection to the peer.
+func TestFSMHandlerActive_StopsManagerWithOutgoingConn(t *testing.T) {
+	m := NewMockConnection()
+	p, h := makePeerAndHandler(m)
+	t.Cleanup(func() { cleanPeerAndHandler(p, h) })
+
+	outgoing := NewMockConnection()
+	t.Cleanup(func() { outgoing.Close() })
+	open, err := bgp.NewBGPOpenMessage(65002, 90, netip.MustParseAddr("10.0.0.1"), nil)
+	require.NoError(t, err)
+	p.fsm.outgoingConnCh <- outgoingConn{conn: outgoing, open: open}
+
+	state, _ := h.active(t.Context())
+	require.Equal(t, bgp.BGP_FSM_OPENCONFIRM, state)
+	require.Same(t, outgoing, p.fsm.conn)
+	require.NotNil(t, p.fsm.outgoingConnMgr)
+	require.Error(t, p.fsm.outgoingConnMgr.ctx.Err())
+}
+
+// In OpenSent on the incoming connection, the peer's OPEN arrives on our own
+// connection before the one on the incoming connection. opensent() used to
+// switch to our connection without resolving the collision: the incoming
+// connection was neither closed nor used, and opensent() did not return
+// until the peer sent something on it.
+// https://github.com/osrg/gobgp/issues/3751
+func TestFSMHandlerOpensent_OutgoingOpenFirst(t *testing.T) {
+	tests := []struct {
+		name         string
+		localID      string
+		remoteID     string
+		wantOutgoing bool
+	}{
+		{"local ID is higher", "10.0.0.9", "10.0.0.1", true},
+		{"remote ID is higher", "10.0.0.1", "10.0.0.9", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			incoming := NewMockConnection()
+			outgoing := NewMockConnection()
+			p, h := makePeerAndHandler(incoming)
+			t.Cleanup(func() {
+				cleanPeerAndHandler(p, h)
+				incoming.Close()
+				outgoing.Close()
+			})
+			p.fsm.opensentHoldTime = 10
+			p.fsm.gConf.Config.RouterId = netip.MustParseAddr(tt.localID)
+			// The manager that sent the connection has returned.
+			p.fsm.outgoingConnMgr = &outgoingConnManager{fsm: p.fsm}
+			p.fsm.outgoingConnMgr.state.Store(bgp.BGP_FSM_OPENSENT)
+
+			open, err := bgp.NewBGPOpenMessage(65002, 90, netip.MustParseAddr(tt.remoteID), nil)
+			require.NoError(t, err)
+			p.fsm.outgoingConnCh <- outgoingConn{conn: outgoing, open: open}
+
+			type result struct {
+				state  bgp.FSMState
+				reason *fsmStateReason
+			}
+			done := make(chan result, 1)
+			go func() {
+				state, reason := h.opensent(t.Context())
+				done <- result{state, reason}
+			}()
+
+			if tt.wantOutgoing {
+				requireCollisionCease(t, sentMessage(t, incoming, 0))
+				msg := sentMessage(t, outgoing, 0)
+				require.Equal(t, uint8(bgp.BGP_MSG_KEEPALIVE), msg.Header.Type)
+			} else {
+				requireCollisionCease(t, sentMessage(t, outgoing, 0))
+				// Still in OpenSent: the OPEN on the incoming
+				// connection moves it to OpenConfirm.
+				go incoming.PushBgpMessage(open)
+				msg := sentMessage(t, incoming, 0)
+				require.Equal(t, uint8(bgp.BGP_MSG_KEEPALIVE), msg.Header.Type)
+			}
+
+			select {
+			case r := <-done:
+				require.Equal(t, bgp.BGP_FSM_OPENCONFIRM, r.state)
+			case <-time.After(5 * time.Second):
+				t.Fatal("the FSM state function did not return")
+			}
+			if tt.wantOutgoing {
+				require.Same(t, outgoing, p.fsm.conn)
+				require.Same(t, open, p.fsm.recvOpen)
+			} else {
+				require.Same(t, incoming, p.fsm.conn)
+			}
+		})
+	}
+}
+
+// startManagerToListener starts an outgoing connection manager that
+// connects to a local listener after delay, and returns both.
+func startManagerToListener(t *testing.T, delay time.Duration) (*outgoingConnManager, net.Listener) {
+	t.Helper()
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { l.Close() })
+
+	m := NewMockConnection()
+	p, h := makePeerAndHandler(m)
+	t.Cleanup(func() { cleanPeerAndHandler(p, h) })
+	p.fsm.gConf.Config.RouterId = netip.MustParseAddr("10.0.0.9")
+	conf := p.fsm.pConf.ReadCopy()
+	conf.Config.LocalAs = 65001
+	conf.Timers.Config.HoldTime = 90
+	conf.State.NeighborAddress = netip.MustParseAddr("127.0.0.1")
+	conf.Transport.Config.RemotePort = uint16(l.Addr().(*net.TCPAddr).Port)
+	conf.Transport.Config.LocalAddress = netip.MustParseAddr("127.0.0.1")
+	p.fsm.pConf.Update(&conf)
+
+	ocm := newOutGoingConnManager(t.Context(), p.fsm, delay)
+	t.Cleanup(func() { ocm.stop(nil) })
+	return ocm, l
+}
+
+// The manager moves to OpenSent before its OPEN goes out. opensent() used
+// to read the state as Connect between the OPEN and the state change, and
+// stopped the manager, which closed a connection that the peer may keep.
+// https://github.com/osrg/gobgp/issues/3751
+func TestOutgoingConnManager_OpenSentBeforeOpen(t *testing.T) {
+	ocm, l := startManagerToListener(t, 0)
+
+	conn, err := l.Accept()
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	msg, err := readAll(conn, bgp.BGP_HEADER_LENGTH)
+	require.NoError(t, err)
+	require.Equal(t, uint8(bgp.BGP_MSG_OPEN), msg[18])
+
+	require.Equal(t, bgp.BGP_FSM_OPENSENT, ocm.state.Load())
+	require.False(t, ocm.state.CompareAndSwap(bgp.BGP_FSM_CONNECT, bgp.BGP_FSM_IDLE))
+}
+
+// When opensent() takes the manager over while it is connecting, the
+// manager closes the new connection without sending its OPEN.
+func TestOutgoingConnManager_StoppedBeforeOpen(t *testing.T) {
+	ocm, l := startManagerToListener(t, 2*time.Second)
+
+	// connectLoop() waits 2 seconds before it connects. Take the manager
+	// over while it waits there, so that it connects after that. Taken
+	// over before connectLoop(), it returns without connecting.
+	time.Sleep(500 * time.Millisecond)
+	require.True(t, ocm.state.CompareAndSwap(bgp.BGP_FSM_CONNECT, bgp.BGP_FSM_IDLE))
+
+	require.NoError(t, l.(*net.TCPListener).SetDeadline(time.Now().Add(5*time.Second)))
+	conn, err := l.Accept()
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	buf := make([]byte, bgp.BGP_HEADER_LENGTH)
+	n, err := conn.Read(buf)
+	require.Equal(t, 0, n)
+	require.ErrorIs(t, err, io.EOF)
+
+	ocm.wg.Wait()
+}
+
+// The delay given to the manager is used only for its first connection.
+// When that connection fails, the manager waits the retry delay before it
+// connects again.
+func TestOutgoingConnManager_RetryDelay(t *testing.T) {
+	_, l := startManagerToListener(t, 0)
+
+	require.NoError(t, l.(*net.TCPListener).SetDeadline(time.Now().Add(5*time.Second)))
+	conn, err := l.Accept()
+	require.NoError(t, err)
+	require.Equal(t, uint8(bgp.BGP_MSG_OPEN), readMessage(t, conn).Header.Type)
+
+	start := time.Now()
+	conn.Close()
+
+	conn, err = l.Accept()
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	// connectRetryDelay(minConnectRetryInterval) is at least 0.75 * 2s.
+	require.GreaterOrEqual(t, time.Since(start), 1500*time.Millisecond)
+}
+
+// readMessage reads one BGP message from conn.
+func readMessage(t *testing.T, conn net.Conn) *bgp.BGPMessage {
+	t.Helper()
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	hdr, err := readAll(conn, bgp.BGP_HEADER_LENGTH)
+	require.NoError(t, err)
+	body, err := readAll(conn, int(binary.BigEndian.Uint16(hdr[16:18]))-bgp.BGP_HEADER_LENGTH)
+	require.NoError(t, err)
+	msg, err := bgp.ParseBGPMessage(append(hdr, body...))
+	require.NoError(t, err)
+	return msg
+}
+
+// A manager stopped with a NOTIFICATION sends it on the connection on which
+// it sent its OPEN, and on a connection that it left in outgoingConnCh.
+func TestOutgoingConnManager_StopWithNotification(t *testing.T) {
+	ocm, l := startManagerToListener(t, 0)
+
+	conn, err := l.Accept()
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	require.Equal(t, uint8(bgp.BGP_MSG_OPEN), readMessage(t, conn).Header.Type)
+
+	left := NewMockConnection()
+	t.Cleanup(func() { left.Close() })
+	open, err := bgp.NewBGPOpenMessage(65002, 90, netip.MustParseAddr("10.0.0.1"), nil)
+	require.NoError(t, err)
+	ocm.fsm.outgoingConnCh <- outgoingConn{conn: left, open: open}
+
+	ocm.stop(bgp.NewBGPNotificationMessage(bgp.BGP_ERROR_CEASE, bgp.BGP_ERROR_SUB_CONNECTION_COLLISION_RESOLUTION, nil))
+
+	requireCollisionCease(t, readMessage(t, conn))
+	requireCollisionCease(t, sentMessage(t, left, 0))
+}
+
+// When the session goes to Idle, a manager that is still connecting is
+// stopped: in Idle we make no connection to the peer.
+func TestOutgoingConnManager_KeepForIdle_Connecting(t *testing.T) {
+	ocm, _ := startManagerToListener(t, time.Minute)
+
+	require.False(t, ocm.keepForIdle())
+	require.Error(t, ocm.ctx.Err())
+}
+
+// A manager that sent its OPEN is kept when the session goes to Idle.
+func TestOutgoingConnManager_KeepForIdle_OpenSent(t *testing.T) {
+	ocm, l := startManagerToListener(t, 0)
+
+	conn, err := l.Accept()
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	require.Equal(t, uint8(bgp.BGP_MSG_OPEN), readMessage(t, conn).Header.Type)
+
+	require.True(t, ocm.keepForIdle())
+	require.NoError(t, ocm.ctx.Err())
+}
+
+// A connection that the manager left in outgoingConnCh is kept when the
+// session goes to Idle.
+func TestOutgoingConnManager_KeepForIdle_ConnInChannel(t *testing.T) {
+	m := NewMockConnection()
+	p, h := makePeerAndHandler(m)
+	t.Cleanup(func() { cleanPeerAndHandler(p, h) })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // the manager has returned
+	ocm := &outgoingConnManager{ctx: ctx, cancel: cancel, fsm: p.fsm}
+
+	outgoing := NewMockConnection()
+	t.Cleanup(func() { outgoing.Close() })
+	open, err := bgp.NewBGPOpenMessage(65002, 90, netip.MustParseAddr("10.0.0.1"), nil)
+	require.NoError(t, err)
+	p.fsm.outgoingConnCh <- outgoingConn{conn: outgoing, open: open}
+
+	require.True(t, ocm.keepForIdle())
+}
+
+// TestRecvMessageloop_DiscardsAs4AttrsFromNewSpeaker verifies that AS4_PATH
+// and AS4_AGGREGATOR received on a session where both sides use four-octet AS
+// numbers are discarded instead of being merged into AS_PATH and AGGREGATOR
+// (RFC 6793 Section 4.1).
+func TestRecvMessageloop_DiscardsAs4AttrsFromNewSpeaker(t *testing.T) {
+	assert := assert.New(t)
+
+	raw := buildUpdate([]byte{
+		0x40, 0x01, 0x01, 0x00, // ORIGIN: IGP
+		0x40, 0x02, 0x0a, 0x02, 0x02, 0x00, 0x00, 0xfd, 0xe9, 0x00, 0x00, 0xfd, 0xea, // AS_PATH: 65001 65002
+		0x40, 0x03, 0x04, 0x0a, 0x00, 0x00, 0x01, // NEXT_HOP: 10.0.0.1
+		0xc0, 0x07, 0x08, 0x00, 0x00, 0xfd, 0xe9, 0x0a, 0x00, 0x00, 0x01, // AGGREGATOR: 65001 10.0.0.1
+		0xc0, 0x11, 0x06, 0x02, 0x01, 0x00, 0x00, 0xfd, 0xeb, // AS4_PATH: 65003
+		0xc0, 0x12, 0x08, 0x00, 0x00, 0xfd, 0xed, 0x0a, 0x00, 0x00, 0x02, // AS4_AGGREGATOR: 65005 10.0.0.2
+	}, []byte{0x18, 0xc0, 0xa8, 0x01}) // 192.168.1.0/24
+
+	fmsg, n := recvUpdate(t, raw)
+	assert.Nil(n)
+	if !assert.NotNil(fmsg) {
+		return
+	}
+	assert.Equal(bgp.ERROR_HANDLING_NONE, fmsg.handling)
+	body := fmsg.MsgData.(*bgp.BGPMessage).Body.(*bgp.BGPUpdate)
+	var asPath *bgp.PathAttributeAsPath
+	var aggregator *bgp.PathAttributeAggregator
+	for _, a := range body.PathAttributes {
+		switch a := a.(type) {
+		case *bgp.PathAttributeAsPath:
+			asPath = a
+		case *bgp.PathAttributeAggregator:
+			aggregator = a
+		case *bgp.PathAttributeAs4Path, *bgp.PathAttributeAs4Aggregator:
+			t.Errorf("%s was not discarded", a.GetType())
+		}
+	}
+	if assert.NotNil(asPath) && assert.Len(asPath.Value, 1) {
+		assert.Equal([]uint32{65001, 65002}, asPath.Value[0].GetAS())
+	}
+	if assert.NotNil(aggregator) {
+		assert.Equal(uint32(65001), aggregator.Value.AS)
+		assert.Equal(netip.MustParseAddr("10.0.0.1"), aggregator.Value.Address)
+	}
+}
+
+func requireAdminResetCease(t *testing.T, msg *bgp.BGPMessage) {
+	t.Helper()
+	require.Equal(t, uint8(bgp.BGP_MSG_NOTIFICATION), msg.Header.Type)
+	n := msg.Body.(*bgp.BGPNotification)
+	require.Equal(t, uint8(bgp.BGP_ERROR_CEASE), n.ErrorCode)
+	require.Equal(t, uint8(bgp.BGP_ERROR_SUB_ADMINISTRATIVE_RESET), n.ErrorSubcode)
+}
+
+// ResetPeer in Idle restarts the idle hold timer with
+// idle-hold-time-after-reset and resets the backoff.
+// https://github.com/osrg/gobgp/issues/3740
+func TestFSMHandlerIdle_Reset(t *testing.T) {
+	m := NewMockConnection()
+	p, h := makePeerAndHandler(m)
+	t.Cleanup(func() { cleanPeerAndHandler(p, h) })
+
+	conf := p.fsm.pConf.ReadCopy()
+	conf.Timers.Config.IdleHoldTimeAfterReset = 1
+	p.fsm.pConf.Update(&conf)
+	p.fsm.idleHoldTime = 64
+	p.fsm.idleHoldBackoff = 64
+
+	p.reset(nil)
+	start := time.Now()
+	state, reason := h.idle(t.Context())
+	require.Equal(t, bgp.BGP_FSM_ACTIVE, state)
+	require.Equal(t, fsmIdleTimerExpired, reason.Type)
+	require.Less(t, time.Since(start), 5*time.Second)
+	require.Equal(t, float64(1), p.fsm.idleHoldTime)
+	require.Equal(t, float64(idleHoldTimeInitial), p.fsm.idleHoldBackoff)
+}
+
+// ResetPeer in Idle is ignored while the peer is administratively down.
+func TestFSMHandlerIdle_ResetWhileAdminDown(t *testing.T) {
+	m := NewMockConnection()
+	p, h := makePeerAndHandler(m)
+	t.Cleanup(func() { cleanPeerAndHandler(p, h) })
+
+	conf := p.fsm.pConf.ReadCopy()
+	conf.Timers.Config.IdleHoldTimeAfterReset = 30
+	p.fsm.pConf.Update(&conf)
+	p.fsm.adminState.Store(adminStateDown)
+	p.fsm.idleHoldTime = 1
+	p.fsm.idleHoldBackoff = 1
+
+	p.reset(nil)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	state, _ := h.idle(ctx)
+	require.Equal(t, bgp.FSMState(-1), state)
+	require.Empty(t, p.fsm.resetCh)
+	require.Equal(t, float64(1), p.fsm.idleHoldTime)
+}
+
+// ResetPeer in Active goes to Idle. The connection of the manager, on which
+// the OPEN was sent, is closed with Cease/Administrative Reset.
+func TestFSMHandlerActive_Reset(t *testing.T) {
+	ocm, l := startManagerToListener(t, 0)
+	fsm := ocm.fsm
+	fsm.outgoingConnMgr = ocm
+
+	conn, err := l.Accept()
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	require.Equal(t, uint8(bgp.BGP_MSG_OPEN), readMessage(t, conn).Header.Type)
+	require.Eventually(t, func() bool { return ocm.state.Load() == bgp.BGP_FSM_OPENSENT },
+		time.Second, 10*time.Millisecond)
+
+	fsm.resetCh <- nil
+	state, reason := fsm.h.active(t.Context())
+	require.Equal(t, bgp.BGP_FSM_IDLE, state)
+	require.Equal(t, fsmAdminReset, reason.Type)
+	require.Nil(t, reason.BGPNotification)
+	require.Error(t, ocm.ctx.Err())
+	requireAdminResetCease(t, readMessage(t, conn))
+}
+
+// ResetPeer in OpenSent and OpenConfirm sends Cease/Administrative Reset
+// and goes to Idle.
+func TestFSMHandler_ResetBeforeEstablished(t *testing.T) {
+	tests := []struct {
+		name  string
+		state func(*fsmHandler, context.Context) (bgp.FSMState, *fsmStateReason)
+	}{
+		{"opensent", (*fsmHandler).opensent},
+		{"openconfirm", (*fsmHandler).openconfirm},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewMockConnection()
+			p, h := makePeerAndHandler(m)
+			t.Cleanup(func() { cleanPeerAndHandler(p, h) })
+			p.fsm.opensentHoldTime = 10
+			conf := p.fsm.pConf.ReadCopy()
+			conf.Timers.Config.KeepaliveInterval = 10
+			p.fsm.pConf.Update(&conf)
+
+			p.reset(nil)
+			state, reason := tt.state(h, t.Context())
+			require.Equal(t, bgp.BGP_FSM_IDLE, state)
+			require.Equal(t, fsmAdminReset, reason.Type)
+			require.Equal(t, uint8(bgp.BGP_ERROR_SUB_ADMINISTRATIVE_RESET), reason.BGPNotification.ErrorSubcode)
+			requireAdminResetCease(t, sentMessage(t, m, 0))
+		})
 	}
 }
