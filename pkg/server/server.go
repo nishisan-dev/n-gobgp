@@ -2697,6 +2697,7 @@ func (s *BgpServer) addPathStream(vrfId string, pathList []*table.Path) error {
 }
 
 func apiutil2Path(path *apiutil.Path, isVRFTable bool, isWithdraw ...bool) (*table.Path, error) {
+	doWithdraw := len(isWithdraw) > 0 && isWithdraw[0] || path.Withdrawal
 	var source *table.PeerInfo
 	if path.PeerASN != 0 {
 		source = &table.PeerInfo{
@@ -2724,6 +2725,16 @@ func apiutil2Path(path *apiutil.Path, isVRFTable bool, isWithdraw ...bool) (*tab
 			return nil, fmt.Errorf("duplicate path attribute %s", aType)
 		}
 		seen[aType] = struct{}{}
+		// RFC 7607 also prohibits originating attributes containing AS 0.
+		// Reject API input rather than silently discarding client attributes.
+		switch aType {
+		case bgp.BGP_ATTR_TYPE_AS_PATH, bgp.BGP_ATTR_TYPE_AS4_PATH, bgp.BGP_ATTR_TYPE_AGGREGATOR, bgp.BGP_ATTR_TYPE_AS4_AGGREGATOR:
+			if !doWithdraw {
+				if ok, err := bgp.ValidateAttribute(a, nil, false, false, false); !ok {
+					return nil, err
+				}
+			}
+		}
 		switch aType {
 		case bgp.BGP_ATTR_TYPE_NEXT_HOP:
 			nexthop = a.(*bgp.PathAttributeNextHop).Value
@@ -2750,7 +2761,6 @@ func apiutil2Path(path *apiutil.Path, isVRFTable bool, isWithdraw ...bool) (*tab
 		pattrs = append(pattrs, attr)
 	}
 
-	doWithdraw := len(isWithdraw) > 0 && isWithdraw[0] || path.Withdrawal
 	// A client that does not set the age gets the time the path is added,
 	// not the Unix epoch.
 	timestamp := time.Now()

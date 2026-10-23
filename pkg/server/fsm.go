@@ -2165,6 +2165,12 @@ func (h *fsmHandler) recvMessageloop(ctx context.Context, conn net.Conn, holdtim
 					// soon anyway.
 					nonblockSendChannel(holdtimerResetCh, struct{}{})
 					body := m.Body.(*bgp.BGPUpdate)
+					// RFC 6793 Sections 4.1 and 6: auxiliary AS4 attributes
+					// from a four-octet peer are ignored, including their
+					// semantic content. Discard them before validation.
+					if !h.fsm.twoByteAsTrans {
+						table.DiscardAs4Attrs(body)
+					}
 
 					rfMap := h.fsm.familyMap.Load().(map[bgp.Family]bgp.BGPAddPathMode)
 					handling := fmsg.handling
@@ -2208,9 +2214,6 @@ func (h *fsmHandler) recvMessageloop(ctx context.Context, conn net.Conn, holdtim
 						}
 					}
 
-					if !h.fsm.twoByteAsTrans {
-						table.DiscardAs4Attrs(body)
-					}
 					table.UpdatePathAttrs4ByteAs(h.fsm.logger, body)
 
 					if err = table.UpdatePathAggregator4ByteAs(body); err != nil {

@@ -23,6 +23,7 @@ func ValidateUpdateMsg(m *BGPUpdate, rfs map[Family]BGPAddPathMode, isEBGP bool,
 
 	seen := make(map[BGPAttrType]PathAttributeInterface)
 	newAttrs := make([]PathAttributeInterface, 0, len(seen))
+	discardedAggregator := false
 	// check path attribute
 	for _, a := range m.PathAttributes {
 		// check duplication
@@ -43,6 +44,14 @@ func ValidateUpdateMsg(m *BGPUpdate, rfs map[Family]BGPAddPathMode, isEBGP bool,
 			ok, err := ValidateAttribute(a, rfs, isEBGP, isConfed, loopbackNextHopAllowed)
 			if !ok {
 				msgErr := err.(*MessageError)
+				if msgErr.ErrorHandling == ERROR_HANDLING_ATTRIBUTE_DISCARD {
+					if a.GetType() == BGP_ATTR_TYPE_AGGREGATOR {
+						discardedAggregator = true
+					}
+					// Discard each offending attribute, even if another error
+					// already requires a stronger action for this UPDATE.
+					newAttrs = newAttrs[:len(newAttrs)-1]
+				}
 				if msgErr.ErrorHandling == ERROR_HANDLING_SESSION_RESET {
 					return false, err
 				} else if msgErr.Stronger(strongestError) {
@@ -59,6 +68,11 @@ func ValidateUpdateMsg(m *BGPUpdate, rfs map[Family]BGPAddPathMode, isEBGP bool,
 				strongestError = e
 			}
 		}
+	}
+	if discardedAggregator {
+		// AS4_AGGREGATOR supplements AGGREGATOR; do not leave it orphaned
+		// after discarding its invalid base attribute.
+		newAttrs = slices.DeleteFunc(newAttrs, func(a PathAttributeInterface) bool { return a.GetType() == BGP_ATTR_TYPE_AS4_AGGREGATOR })
 	}
 	m.PathAttributes = newAttrs
 
@@ -162,6 +176,12 @@ func ValidateAttribute(a PathAttributeInterface, rfs map[Family]BGPAddPathMode, 
 			}
 		}
 	case *PathAttributeAsPath:
+		// RFC 7607 Section 2 applies to all segment types and both AS widths.
+		for _, param := range p.Value {
+			if asPathParamHasASZero(param) {
+				return false, asZeroError(a, ERROR_HANDLING_TREAT_AS_WITHDRAW)
+			}
+		}
 		if isEBGP {
 			if isConfed {
 				if len(p.Value) == 0 {
@@ -183,6 +203,22 @@ func ValidateAttribute(a PathAttributeInterface, rfs map[Family]BGPAddPathMode, 
 					}
 				}
 			}
+		}
+	case *PathAttributeAs4Path:
+		for _, param := range p.Value {
+			if slices.Contains(param.AS, 0) {
+				// RFC 7607 delegates AS4 errors to RFC 6793 Section 6:
+				// discard the auxiliary attribute, preserving AS_PATH.
+				return false, asZeroError(a, ERROR_HANDLING_ATTRIBUTE_DISCARD)
+			}
+		}
+	case *PathAttributeAggregator:
+		if p.Value.AS == 0 {
+			return false, asZeroError(a, ERROR_HANDLING_ATTRIBUTE_DISCARD)
+		}
+	case *PathAttributeAs4Aggregator:
+		if p.Value.AS == 0 {
+			return false, asZeroError(a, ERROR_HANDLING_ATTRIBUTE_DISCARD)
 		}
 	case *PathAttributeLargeCommunities:
 		uniq := make([]*LargeCommunity, 0, len(p.Values))
@@ -209,6 +245,28 @@ func ValidateAttribute(a PathAttributeInterface, rfs map[Family]BGPAddPathMode, 
 	}
 
 	return strongestError == nil, strongestError
+}
+
+func asPathParamHasASZero(param AsPathParamInterface) bool {
+	// GetAS allocates a widened slice for a two-octet segment. Check its
+	// storage directly on the receive path instead.
+	switch p := param.(type) {
+	case *AsPathParam:
+		return slices.Contains(p.AS, 0)
+	case *As4PathParam:
+		return slices.Contains(p.AS, 0)
+	default:
+		return slices.Contains(param.GetAS(), 0)
+	}
+}
+
+func asZeroError(a PathAttributeInterface, handling ErrorHandling) error {
+	subcode := uint8(BGP_ERROR_SUB_OPTIONAL_ATTRIBUTE_ERROR)
+	if a.GetType() == BGP_ATTR_TYPE_AS_PATH || a.GetType() == BGP_ATTR_TYPE_AS4_PATH {
+		subcode = BGP_ERROR_SUB_MALFORMED_AS_PATH
+	}
+	data, _ := a.Serialize()
+	return NewMessageErrorWithErrorHandling(BGP_ERROR_UPDATE_MESSAGE_ERROR, subcode, data, handling, &a, fmt.Sprintf("AS 0 in %s", a.GetType()))
 }
 
 // validNexthop reports whether addr is a valid IP host address for a next

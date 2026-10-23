@@ -1,0 +1,80 @@
+go version go1.27.3 linux/arm64
+go: downloading google.golang.org/grpc v1.83.2
+go: downloading google.golang.org/protobuf v1.36.11
+go: downloading github.com/orcaman/concurrent-map/v2 v2.0.1
+go: downloading github.com/vishvananda/netlink v1.3.1
+go: downloading golang.org/x/sys v0.47.0
+go: downloading github.com/coreos/go-systemd/v22 v22.5.0
+go: downloading github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da
+go: downloading github.com/stretchr/testify v1.10.0
+go: downloading github.com/getsentry/sentry-go v0.34.1
+go: downloading github.com/gaissmai/bart v0.26.1
+go: downloading github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
+go: downloading github.com/k-sone/critbitgo v1.4.0
+go: downloading github.com/jessevdk/go-flags v1.6.1
+go: downloading github.com/segmentio/fasthash v1.0.3
+go: downloading github.com/spf13/cobra v1.9.1
+go: downloading github.com/kr/pretty v0.3.1
+go: downloading golang.org/x/text v0.41.0
+go: downloading github.com/prometheus/client_golang v1.16.0
+go: downloading github.com/google/uuid v1.6.0
+go: downloading golang.org/x/time v0.12.0
+go: downloading github.com/google/go-cmp v0.7.0
+go: downloading github.com/fsnotify/fsnotify v1.9.0
+go: downloading github.com/go-viper/mapstructure/v2 v2.4.0
+go: downloading github.com/prometheus/client_model v0.3.0
+go: downloading github.com/spf13/viper v1.20.1
+go: downloading github.com/go-test/deep v1.1.1
+go: downloading github.com/eapache/channels v1.1.0
+go: downloading github.com/BurntSushi/toml v1.5.0
+go: downloading github.com/twmb/franz-go v1.21.0
+go: downloading go.uber.org/goleak v1.3.0
+go: downloading go.etcd.io/bbolt v1.4.3
+go: downloading github.com/twmb/franz-go/pkg/kmsg v1.13.1
+go: downloading golang.org/x/net v0.58.0
+go: downloading google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa
+go: downloading github.com/vishvananda/netns v0.0.5
+go: downloading github.com/spf13/pflag v1.0.6
+go: downloading github.com/kr/text v0.2.0
+go: downloading github.com/rogpeppe/go-internal v1.9.0
+go: downloading github.com/davecgh/go-spew v1.1.1
+go: downloading github.com/pmezard/go-difflib v1.0.0
+go: downloading github.com/sagikazarmark/locafero v0.7.0
+go: downloading github.com/spf13/cast v1.7.1
+go: downloading github.com/spf13/afero v1.12.0
+go: downloading github.com/beorn7/perks v1.0.1
+go: downloading github.com/cespare/xxhash/v2 v2.3.0
+go: downloading github.com/prometheus/common v0.42.0
+go: downloading github.com/prometheus/procfs v0.10.1
+go: downloading github.com/klauspost/compress v1.18.5
+go: downloading github.com/pierrec/lz4/v4 v4.1.26
+go: downloading golang.org/x/crypto v0.55.0
+go: downloading github.com/golang/protobuf v1.5.4
+go: downloading github.com/eapache/queue v1.1.0
+go: downloading gopkg.in/yaml.v3 v3.0.1
+go: downloading github.com/sourcegraph/conc v0.3.0
+go: downloading github.com/subosito/gotenv v1.6.0
+go: downloading github.com/pelletier/go-toml/v2 v2.2.3
+go: downloading github.com/matttproud/golang_protobuf_extensions v1.0.4
+?   	github.com/osrg/gobgp/v4/api	[no test files]
+ok  	github.com/osrg/gobgp/v4/cmd/gobgp	1.071s
+?   	github.com/osrg/gobgp/v4/cmd/gobgpd	[no test files]
+ok  	github.com/osrg/gobgp/v4/internal/pkg/netutils	1.055s
+ok  	github.com/osrg/gobgp/v4/internal/pkg/table	2.986s
+?   	github.com/osrg/gobgp/v4/internal/pkg/version	[no test files]
+ok  	github.com/osrg/gobgp/v4/pkg/apiutil	1.140s
+ok  	github.com/osrg/gobgp/v4/pkg/config	1.093s
+?   	github.com/osrg/gobgp/v4/pkg/config/kafka	[no test files]
+ok  	github.com/osrg/gobgp/v4/pkg/config/oc	1.192s
+ok  	github.com/osrg/gobgp/v4/pkg/event	1.029s
+ok  	github.com/osrg/gobgp/v4/pkg/metrics	3.848s
+ok  	github.com/osrg/gobgp/v4/pkg/packet/bfd	1.034s
+ok  	github.com/osrg/gobgp/v4/pkg/packet/bgp	1.194s
+ok  	github.com/osrg/gobgp/v4/pkg/packet/bmp	1.058s
+ok  	github.com/osrg/gobgp/v4/pkg/packet/mrt	1.060s
+ok  	github.com/osrg/gobgp/v4/pkg/packet/rtr	1.032s
+ok  	github.com/osrg/gobgp/v4/pkg/server	170.034s
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka	5.224s
+ok  	github.com/osrg/gobgp/v4/pkg/zebra	1.056s
+?   	github.com/osrg/gobgp/v4/tools/config	[no test files]
+?   	github.com/osrg/gobgp/v4/tools/mrt-updates	[no test files]

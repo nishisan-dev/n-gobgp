@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-23",
+  "fork_commit": "d76b7b01adfbab8454486c69cfa6775a5e50ee6c",
+  "upstream_reviewed": "2f4224f5675e16742678a58102ca9953fe8b2cbd",
+  "triage": {
+    "open_issues_read": 150,
+    "open_pull_requests_read": 18
+  },
+  "probe_scope": "Local attribute validator and BGP-LS TLV codec only; no end-to-end BGP propagation claim. One-octet metric masking is correct for IS-IS small metrics.",
+  "probes": {
+    "as_path_with_asn_zero": {
+      "accepted_by_attribute_validator": true,
+      "error": "<nil>"
+    },
+    "metric_1095_one_octet": {
+      "decode_error": "<nil>",
+      "decoded": 36,
+      "encode_error": "<nil>",
+      "reencoded": "0447000124",
+      "wire_value": 100
+    }
+  }
+}

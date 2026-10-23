@@ -476,7 +476,10 @@ func (p *bfdPeer) rxPacket(h *bfd.BFDHeader) {
 	switch h.State {
 	case bfd.StateAdminDown:
 		if p.sessionState() != api.BfdSessionState_BFD_SESSION_STATE_DOWN {
-			p.remoteDown()
+			// RFC 5882 Sections 3.2 and 4.2: administrative shutdown is
+			// not a connectivity failure. BGP keeps its own liveness
+			// detection; only bring BFD Down and stop its expiry timer.
+			p.setStateDown()
 		}
 	case bfd.StateDown:
 		switch p.sessionState() {
