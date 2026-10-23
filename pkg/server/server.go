@@ -577,6 +577,11 @@ func (s *BgpServer) matchLongestDynamicNeighborPrefix(a string) *peerGroup {
 }
 
 func sendfsmOutgoingMsg(peer *peer, paths []*table.Path) {
+	for _, p := range paths {
+		if p != nil && p.IsEOR() {
+			peer.sentEOR.Store(p.GetFamily(), struct{}{})
+		}
+	}
 	peer.fsm.outgoingCh.In() <- &fsmOutgoingMsg{
 		Paths: paths,
 	}
@@ -1233,10 +1238,10 @@ func (s *BgpServer) getBestFromLocalCallback(peer *peer, rfList []bgp.Family, ad
 		defer peer.routeRefreshInProgress.RUnlock()
 	}
 
-	s.getBestFromLocalCallbackLocked(peer, rfList, addEOR, fn)
+	s.getBestFromLocalCallbackLocked(peer, rfList, addEOR, routeRefresh, fn)
 }
 
-func (s *BgpServer) getBestFromLocalCallbackLocked(peer *peer, rfList []bgp.Family, addEOR bool, fn func([]*table.Path, []*table.Path)) {
+func (s *BgpServer) getBestFromLocalCallbackLocked(peer *peer, rfList []bgp.Family, addEOR bool, routeRefresh bool, fn func([]*table.Path, []*table.Path)) {
 	pathList := []*table.Path{}
 	filtered := []*table.Path{}
 
@@ -1270,6 +1275,9 @@ func (s *BgpServer) getBestFromLocalCallbackLocked(peer *peer, rfList []bgp.Fami
 				filtered = append(filtered, filteredPathForPeer(peer, path))
 			}
 		}
+	}
+	if routeRefresh {
+		pathList, filtered = selectRefreshPaths(peer, pathList, filtered)
 	}
 	if addEOR {
 		isGREnabled := peer.isGracefulRestartEnabled()
@@ -1404,13 +1412,31 @@ func (s *BgpServer) handleRouteRefresh(peer *peer, e *fsmMsg) {
 		peer.fsm.logger.Warn("ROUTE_REFRESH received but the capability wasn't advertised")
 		return
 	}
-	rfList := []bgp.Family{rf}
-	s.getBestFromLocalCallback(peer, rfList, true, true, func(paths []*table.Path, filtered []*table.Path) {
-		if len(paths) > 0 {
-			peer.updateRoutes(paths...)
-			sendfsmOutgoingMsg(peer, paths)
+	switch rr.Demarcation {
+	case 0:
+		s.softResetOutPeer(peer, rf, false)
+	case 1:
+		if !peer.supportsEnhancedRefresh() {
+			return
 		}
-	})
+		peer.fsm.lock.Lock()
+		_, receivedGR := peer.fsm.capMap[bgp.BGP_CAP_GRACEFUL_RESTART]
+		peer.fsm.lock.Unlock()
+		if receivedGR {
+			afi := peer.fsm.pConf.ReadOnly().GetAfiSafi(rf)
+			if afi == nil || !afi.MpGracefulRestart.State.EndOfRibReceived {
+				return
+			}
+		}
+		peer.beginRefresh(rf)
+	case 2:
+		if !peer.supportsEnhancedRefresh() {
+			return
+		}
+		removed, accepted := peer.endRefresh(rf)
+		s.notifyAdjInWithdrawWatcher(peer, removed)
+		s.propagateUpdate(peer, accepted)
+	}
 }
 
 // dropAdjRIBIn removes the peer's Adj-RIB-In for the given families and
@@ -1902,6 +1928,7 @@ func (s *BgpServer) handleFSMMessage(peer *peer, e *fsmMsg) {
 			// Publish the down state before clearing advertised-route state.
 			// This avoids rebuilding RIB-out bookkeeping by propagation that starts after the reset.
 			peer.fsm.state.Store(nextState)
+			peer.refreshPending = nil
 			s.resetAdvertisedRoutes(peer)
 			s.dropAdjRIBIn(peer, dropFamilies)
 
@@ -2034,6 +2061,11 @@ func (s *BgpServer) handleFSMMessage(peer *peer, e *fsmMsg) {
 				peer.fsm.gConf.Config.RouterId, conf.Transport.State.RemoteAddress, conf.Transport.State.LocalAddress)
 			peer.peerInfo.Store(peerInfo)
 
+			// The old session's queue has been drained. Admit live propagation
+			// before taking the initial RIB snapshot: anything arriving after that
+			// snapshot must not be discarded while the FSM callback returns.
+			peer.fsm.state.Store(nextState)
+
 			notLocalRestarting := !conf.GracefulRestart.State.LocalRestarting
 			if notLocalRestarting {
 				// When graceful-restart cap (which means intention
@@ -2076,10 +2108,8 @@ func (s *BgpServer) handleFSMMessage(peer *peer, e *fsmMsg) {
 				allEnd := func() bool {
 					for _, p := range s.neighborMap {
 						if p == peer {
-							// This peer is transitioning to ESTABLISHED inside
-							// this callback, so fsm.state.Store() has not been
-							// called yet. Apply the post-ESTABLISHED EOR check
-							// directly instead of going through receivedAllEOR().
+							// The current session has been published as Established.
+							// Check its negotiated families directly at this boundary.
 							if !p.allNegotiatedEORReceived() {
 								return false
 							}
@@ -2197,13 +2227,6 @@ func (s *BgpServer) handleFSMMessage(peer *peer, e *fsmMsg) {
 					if f == bgp.RF_RTC_UC {
 						rtc = true
 					}
-					peerInfo := *peer.peerInfo.Load()
-					ev := &watchEventEor{
-						Family:    f,
-						PeerInfo:  &peerInfo,
-						Timestamp: e.timestamp,
-					}
-					s.notifyWatcher(watchEventTypeEor, ev)
 					peer.fsm.lock.Lock()
 					conf := peer.fsm.pConf.ReadCopy()
 					for i, a := range peerAfiSafis {
@@ -2262,16 +2285,30 @@ func (s *BgpServer) handleFSMMessage(peer *peer, e *fsmMsg) {
 				conf := peer.fsm.pConf.ReadOnly()
 				peerRestarting := conf.GracefulRestart.State.PeerRestarting
 				if peerRestarting {
+					// EOR completes one family even when another is still syncing.
+					if s.isWatched(watchEventTypeAdjInWithdraw) {
+						var removed []*table.Path
+						for _, p := range peer.adjRibIn.PathList(eor, false) {
+							if p.IsStale() {
+								removed = append(removed, p.Clone(true))
+							}
+						}
+						s.notifyAdjInWithdrawWatcher(peer, removed)
+					}
+					pathList := peer.adjRibIn.DropStale(eor)
+					s.propagateUpdate(peer, pathList)
 					if peer.receivedAllEOR() {
 						peer.stopPeerRestarting()
-						pathList := peer.adjRibIn.DropStale(peer.configuredRFlist())
-
-						peer.fsm.logger.Debug("withdraw stale routes", slog.Int("Numbers", len(pathList)))
-
-						s.propagateUpdate(peer, pathList)
 					}
 					// we don't delay non-route-target NLRIs when peer is restarting
 					peer.setRtcEORWait(false)
+				}
+
+				// Publish completion only after stale withdrawals have entered the
+				// same observer queues, so collectors do not finish an obsolete view.
+				for _, f := range eor {
+					info := *peer.peerInfo.Load()
+					s.notifyWatcher(watchEventTypeEor, &watchEventEor{Family: f, PeerInfo: &info, Timestamp: e.timestamp})
 				}
 
 				// received EOR of route-target address family
@@ -3196,7 +3233,7 @@ func (s *BgpServer) softResetOutPeer(peer *peer, family bgp.Family, deferral boo
 			}
 			paths = append(withdrawals, paths...)
 		}
-		if len(paths) > 0 {
+		if len(paths) > 0 || !deferral && peer.supportsEnhancedRefresh() {
 			if deferral {
 				paths = func() []*table.Path {
 					l := make([]*table.Path, 0, len(paths))
@@ -3209,7 +3246,11 @@ func (s *BgpServer) softResetOutPeer(peer *peer, family bgp.Family, deferral boo
 				}()
 			}
 			peer.updateRoutes(paths...)
-			sendfsmOutgoingMsg(peer, paths)
+			if deferral {
+				sendfsmOutgoingMsg(peer, paths)
+			} else {
+				sendRefreshPaths(peer, families, paths)
+			}
 		}
 	})
 }
@@ -3356,7 +3397,9 @@ func (s *BgpServer) adjRibOutForListPath(peer *peer, family bgp.Family, enableFi
 			toUpdate = adjRibOutPathsToUpdate(peer, paths, filtered)
 		})
 	}
-	adjRib.Update(toUpdate)
+	// Outbound paths are identified by local Path-ID. Input-style Update
+	// would collapse paths from different sources sharing remote ID zero.
+	adjRib.UpdateAdjRibOut(toUpdate)
 	return adjRib
 }
 
@@ -6216,4 +6259,61 @@ func (s *BgpServer) tcpAoBindInterface(peerConfig oc.TransportConfig) string {
 		return peerConfig.BindInterface
 	}
 	return s.bgpConfig.Global.Config.BindToDevice
+}
+
+// Preserve eligible already-advertised paths first, then fill free slots.
+// This matches live ADD-PATH admission and does not switch Path-IDs on refresh.
+func selectRefreshPaths(peer *peer, candidates, filtered []*table.Path) ([]*table.Path, []*table.Path) {
+	selected := make([]*table.Path, 0, len(candidates))
+	counts := make(map[table.PathDestLocalKey]uint8)
+	for _, sent := range []bool{true, false} {
+		for _, path := range candidates {
+			if peer.hasPathAlreadyBeenSent(path) != sent {
+				continue
+			}
+			if !peer.isAddPathSendEnabled(path.GetFamily()) {
+				selected = append(selected, path)
+				continue
+			}
+			key := path.GetDestLocalKey()
+			if counts[key] < peer.getAddPathSendMax(path.GetFamily()) {
+				counts[key]++
+				peer.unsetPathSendMaxFiltered(path)
+				selected = append(selected, path)
+			} else {
+				peer.setPathSendMaxFiltered(path)
+				filtered = append(filtered, path)
+			}
+		}
+	}
+	return selected, filtered
+}
+
+// Keep demarcation and replay in one outgoing item so UPDATE coalescing cannot
+// move a path across its BoRR/EoRR boundary. Called under routeRefreshInProgress.
+func sendRefreshPaths(peer *peer, families []bgp.Family, paths []*table.Path) {
+	enhanced := peer.supportsEnhancedRefresh()
+	for _, family := range families {
+		if !peer.IsFamilyEnabled(family) {
+			continue
+		}
+		group := make([]*table.Path, 0)
+		for _, p := range paths {
+			if p.GetFamily() == family {
+				group = append(group, p)
+			}
+		}
+		_, eorQueued := peer.sentEOR.Load(family)
+		delimit := enhanced && (!peer.isGracefulRestartEnabled() || eorQueued)
+		if delimit {
+			for _, p := range group {
+				if p.IsEOR() {
+					peer.sentEOR.Store(family, struct{}{})
+				}
+			}
+			peer.fsm.outgoingCh.In() <- &fsmOutgoingMsg{Paths: group, RefreshFamily: family}
+		} else if len(group) > 0 {
+			sendfsmOutgoingMsg(peer, group)
+		}
+	}
 }

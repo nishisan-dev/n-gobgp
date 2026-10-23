@@ -788,7 +788,7 @@ jobs:
           args: check
 
   r03-protocol:
-    name: RPKI and VRF protocol regression
+    name: R03 protocol regressions
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -796,12 +796,13 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
-      - name: verify BGP observations after RTR and VRF-scoped ZAPI changes
+      - name: verify BGP observations after RPKI, VRF, refresh and EOR changes
         env:
           GORACE: halt_on_error=1
         run: |
           go build -race -o "$RUNNER_TEMP/gobgpd-r03" ./cmd/gobgpd
           python3 test/integration/r03_rpki_vrf.py --gobgpd "$RUNNER_TEMP/gobgpd-r03"
+          python3 test/integration/r03_refresh_addpath.py --gobgpd "$RUNNER_TEMP/gobgpd-r03"
 
   required:
     name: required
