@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/osrg/gobgp/v4/internal/pkg/version"
 	config "github.com/osrg/gobgp/v4/pkg/config/kafka"
 	"github.com/osrg/gobgp/v4/pkg/event"
 	"github.com/twmb/franz-go/pkg/kerr"
@@ -79,12 +80,19 @@ func (s *sink) offer(v event.Observation, value []byte, id string) bool {
 		}
 		r.Key = []byte(peer + "|" + family)
 	}
+	identity := version.Get()
 	r.Headers = []kgo.RecordHeader{
 		{Key: "content-type", Value: []byte(s.serializer.ContentType())},
 		{Key: "serializer", Value: []byte(s.config.Format)},
 		{Key: "schema", Value: []byte(v.Message.ProtoReflect().Descriptor().FullName())},
 		{Key: "sink", Value: []byte(s.name)},
-		{Key: "gobgp-version", Value: []byte(goBGPVersion())},
+		{Key: "gobgp-version", Value: []byte(identity.UpstreamVersion)},
+		{Key: "fork-name", Value: []byte(identity.Product)},
+		{Key: "fork-version", Value: []byte(identity.Version)},
+		{Key: "fork-commit", Value: []byte(identity.Commit)},
+		{Key: "fork-dirty", Value: []byte(identity.Dirty)},
+		{Key: "upstream-repository", Value: []byte(identity.UpstreamRepository)},
+		{Key: "upstream-commit", Value: []byte(identity.UpstreamCommit)},
 		{Key: "source", Value: []byte(v.Metadata.Source)},
 		{Key: "event-type", Value: []byte(v.Metadata.EventType)},
 		{Key: "observed-at", Value: []byte(v.Metadata.ObservedAt.UTC().Format(time.RFC3339Nano))},

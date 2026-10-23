@@ -36,3 +36,4 @@ test/scenario_test/nosetest*.xml
 #
 .claude
 CLAUDE.md
+dist/

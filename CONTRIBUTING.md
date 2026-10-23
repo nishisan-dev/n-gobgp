@@ -104,46 +104,68 @@ $ cd proto
 $ buf generate
 ```
 
-## Releases
+## Fork releases and identity
 
-GoBGP releases are time-based. Minor releases will occur every month ([Semantic Versioning](https://semver.org/)). Major releases occur only when absolutely necessary.
+This repository releases **n-gobgp** independently from osrg/gobgp. The initial
+fork version is `0.1.0-dev`; release tags use `v0.1.0`, `v0.1.1`, etc. A release
+is driven by readiness and validation, not the upstream monthly schedule. The
+Go module path, binary names and protobuf API remain compatible with GoBGP v4.
+The fork version does not describe an upstream API version. Fork `v0.x` tags
+version the applications; they are not module releases for the retained `/v4`
+import path. Library users must pin a fork commit with a `replace` directive
+until a separate module/version migration is designed.
 
-## Versioning
+`internal/pkg/version/version.go` is the source of truth for the fork version
+and the incorporated upstream base. `UpstreamCommit` is the full commit from
+osrg/gobgp that was actually merged, not the latest upstream HEAD. Update the
+upstream version and commit together when incorporating a new base. For a
+selective cherry-pick, keep that base and record the selected SHA and validation
+in the PR. Every upstream intake must describe its purpose, risk and tests.
 
-GoBGP has a internal module for version information.
-```internal/pkg/version/version.go``` defines the following variables
+Both binaries expose fork version, fork commit, working-tree state, upstream
+repository, upstream version and upstream commit through `--version`. Builds
+without VCS metadata report `unknown` rather than inventing a commit. The
+`COMMIT`, `IDENTIFIER`, `METADATA` and `DIRTY` linker variables allow explicit
+build metadata; direct `go build` uses Go VCS information when available.
 
-```MAJOR``` ```MINOR``` ```PATCH``` these constants are for the Semantic Versioning scheme.
-These will be updated upon release by maintainer.
+Use Go **1.27.3** and run `tools/build.sh` to build both binaries in `dist/local`.
+It uses the full fork SHA, no build timestamp, disabled CGO, trimmed paths and
+an empty build ID. `tools/check-build.sh` builds twice and compares the actual
+binary bytes, checks CLI identity and tests rejection of a mismatched release
+tag in a clean checkout. Reproduction assumes the same source, dependencies,
+Go version, target architecture and build flags.
 
-There is also two more variables that are ment to be changed by ldflags;
+To release, update the fork MAJOR/MINOR/PATCH constants, merge through a PR,
+wait for the main commit's `required` check, and create its matching `vX.Y.Z`
+tag. Do not reuse an existing release tag. The release workflow requires main
+ancestry and a successful check from GitHub Actions, then uses pinned GoReleaser
+**v2.19.0**. Release builds remove `dev` and include the full fork commit. Tag
+mismatch or a dirty checkout fails before publication. Assets include both
+binaries, source and checksums. No release tag is created by the build scripts.
 
-```TAG``` is supposed to be used to denote which branch the build is based upon.
-```SHA``` is supposed to be used to inform about which git sha sum the build is based on.
+## Required CI
 
-### Examples
+The `required` job aggregates every CI job, including the AS 0/BFD regressions,
+race detection, 32-bit tests, Kafka with real brokers, generated API/YANG files,
+platform builds, release identity and routing scenarios. A failed, skipped,
+cancelled or missing dependency fails the gate. Adding a job without adding it
+to the gate's `needs` also fails. Pushes to main and PRs run CI; a feature branch
+does not run a duplicate push pipeline. New commits cancel an older PR run.
 
-A normal release version of GoBGP Version 2.5.0 should should have;
-
-```golang
-const MAJOR uint = 2
-const MINOR uint = 5
-const PATCH uint = 0
-```
-
-If you have a non-standard release and want to have more build information there is some flags to be used.
-`COMMIT`, `IDENTIFIER` and `METADATA`.
+`.github/main-protection.json` declares main's required check (`required`, from
+GitHub Actions), up-to-date branches and enforcement for administrators. PRs
+are required, with zero mandatory external approvals so the maintainer can
+merge their own work after CI. Force pushes and deletion are disabled. An
+administrator can apply or reconcile it with:
 
 ```bash
-go build -ldflags \
-	"-X github.com/osrg/gobgp/v4/internal/pkg/version.COMMIT=`git rev-parse --short HEAD` \
-	 -X github.com/osrg/gobgp/v4/internal/pkg/version.METADATA="date.`date "+%Y%m%d"`" \
-	 -X github.com/osrg/gobgp/v4/internal/pkg/version.IDENTIFIER=alpha"
+gh api --method PUT repos/nishisan-dev/n-gobgp/branches/main/protection \
+  --input .github/main-protection.json
 ```
 
-This will produce a version number of
-
-```3.0.0-alpaha+commit.XXXYYYZZ.date.20211209```
+Changing the YAML alone does not configure GitHub branch protection. Check the
+server-side policy after applying it; never silently substitute a bypass when
+repository permissions or plan limitations reject the change.
 
 ## Layout
 

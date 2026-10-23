@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/osrg/gobgp/v4/internal/pkg/version"
 	config "github.com/osrg/gobgp/v4/pkg/config/kafka"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
@@ -83,6 +84,10 @@ func TestKafkaBrokerIntegration(t *testing.T) {
 	}
 	require.Len(t, records, 3)
 	for _, r := range records {
+		require.Equal(t, version.Product, header(r, "fork-name"))
+		require.Equal(t, version.Version(), header(r, "fork-version"))
+		require.Equal(t, version.Get().Commit, header(r, "fork-commit"))
+		require.Equal(t, version.UpstreamCommit, header(r, "upstream-commit"))
 		require.Equal(t, header(records[0], "event-id"), header(r, "event-id"))
 		require.Equal(t, "192.0.2.1", string(r.Key))
 		require.JSONEq(t, string(records[0].Value), string(r.Value))

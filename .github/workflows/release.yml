@@ -7,9 +7,26 @@ on:
 
 permissions:
   contents: write
+  checks: read
 
 jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: require main ancestry and successful CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          gh api "repos/$GITHUB_REPOSITORY/commits/$(git rev-parse HEAD)/check-runs" --paginate \
+            --jq '.check_runs[] | select(.name == "required" and .app.slug == "github-actions" and .conclusion == "success") | .id' > "$RUNNER_TEMP/required-checks"
+          test -s "$RUNNER_TEMP/required-checks"
+
   goreleaser:
+    needs: guard
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -20,14 +37,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: 'stable'
+          go-version: "1.27.3"
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
           # either 'goreleaser' (default) or 'goreleaser-pro'
           distribution: goreleaser
-          version: latest
+          version: v2.19.0
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

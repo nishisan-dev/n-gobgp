@@ -1,5 +1,9 @@
 # n-gobgp: BGP routing and event streaming in Go
 
+> **n-gobgp fork:** independent collector releases start at `0.1.0-dev`.
+> Run `gobgpd --version` for the fork commit and incorporated upstream base.
+> See [fork releases and required CI](CONTRIBUTING.md#fork-releases-and-identity).
+
 [![Upstream Go Report Card](https://goreportcard.com/badge/github.com/osrg/gobgp)](https://goreportcard.com/report/github.com/osrg/gobgp)
 [![Tests](https://github.com/nishisan-dev/n-gobgp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nishisan-dev/n-gobgp/actions/workflows/ci.yml)
 [![Upstream Go Reference](https://pkg.go.dev/badge/github.com/osrg/gobgp/v4.svg)](https://pkg.go.dev/github.com/osrg/gobgp/v4)

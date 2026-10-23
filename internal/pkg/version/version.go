@@ -15,19 +15,78 @@
 
 package version
 
-import "fmt"
+import (
+	"fmt"
+	"runtime/debug"
+)
 
 const (
-	MAJOR uint = 4
-	MINOR uint = 10
-	PATCH uint = 0
+	MAJOR              uint = 0
+	MINOR              uint = 1
+	PATCH              uint = 0
+	Product                 = "n-gobgp"
+	UpstreamRepository      = "osrg/gobgp"
+	UpstreamVersion         = "4.10.0"
+	// Last upstream commit incorporated into this fork, not the latest available.
+	UpstreamCommit = "95c43b005b2901279ce055c17d6f2a6fae329336"
 )
 
 var (
 	COMMIT     string = ""
-	IDENTIFIER string = ""
+	IDENTIFIER string = "dev"
 	METADATA   string = ""
+	DIRTY      string = ""
 )
+
+// Identity describes the producer at capture time. Replay must preserve it.
+type Identity struct {
+	Product            string
+	Version            string
+	Commit             string
+	Dirty              string
+	UpstreamRepository string
+	UpstreamVersion    string
+	UpstreamCommit     string
+}
+
+var revision, modified = readVCS()
+
+func readVCS() (string, string) {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Path == "github.com/osrg/gobgp/v4" {
+		return vcsSettings(info.Settings)
+	}
+	return "unknown", "unknown"
+}
+
+func vcsSettings(settings []debug.BuildSetting) (string, string) {
+	commit, dirty := "unknown", "unknown"
+	for _, setting := range settings {
+		switch setting.Key {
+		case "vcs.revision":
+			commit = setting.Value
+		case "vcs.modified":
+			dirty = setting.Value
+		}
+	}
+	return commit, dirty
+}
+
+func Get() Identity {
+	commit := revision
+	dirty := modified
+	if COMMIT != "" {
+		commit = COMMIT
+	}
+	if DIRTY != "" {
+		dirty = DIRTY
+	}
+	return Identity{Product, Version(), commit, dirty, UpstreamRepository, UpstreamVersion, UpstreamCommit}
+}
+
+func Description() string {
+	i := Get()
+	return fmt.Sprintf("%s %s commit=%s dirty=%s upstream=%s@%s upstream-version=%s", i.Product, i.Version, i.Commit, i.Dirty, i.UpstreamRepository, i.UpstreamCommit, i.UpstreamVersion)
+}
 
 func Version() string {
 	suffix := ""

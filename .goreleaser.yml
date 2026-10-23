@@ -1,6 +1,9 @@
-#
-# .goreleaser.yml
-# Build customization
+version: 2
+
+before:
+  hooks:
+    - env RELEASE_TAG={{ .Tag }} tools/build.sh dist/verify
+
 env:
   - GO111MODULE=on
   - CGO_ENABLED=0
@@ -9,10 +12,12 @@ builds:
   - id: gobgp
     main: ./cmd/gobgp/
     binary: gobgp
+    mod_timestamp: '{{ .CommitTimestamp }}'
     flags:
-      - -a
-      - -tags=netgo
-    ldflags: -s
+      - -trimpath
+      - -buildvcs=false
+    ldflags:
+      - -s -w -buildid= -X github.com/osrg/gobgp/v4/internal/pkg/version.COMMIT={{ .FullCommit }} -X github.com/osrg/gobgp/v4/internal/pkg/version.IDENTIFIER= -X github.com/osrg/gobgp/v4/internal/pkg/version.DIRTY=false
     goos:
       - linux
     goarch:
@@ -24,10 +29,12 @@ builds:
   - id: gobgpd
     main: ./cmd/gobgpd/
     binary: gobgpd
+    mod_timestamp: '{{ .CommitTimestamp }}'
     flags:
-      - -a
-      - -tags=netgo
-    ldflags: -s
+      - -trimpath
+      - -buildvcs=false
+    ldflags:
+      - -s -w -buildid= -X github.com/osrg/gobgp/v4/internal/pkg/version.COMMIT={{ .FullCommit }} -X github.com/osrg/gobgp/v4/internal/pkg/version.IDENTIFIER= -X github.com/osrg/gobgp/v4/internal/pkg/version.DIRTY=false
     goos:
       - linux
     goarch:
@@ -37,7 +44,29 @@ builds:
       - arm64
 
 archives:
-  - id: foo
+  - id: n-gobgp
+    name_template: "n-gobgp_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
+    builds_info:
+      owner: root
+      group: root
+      mtime: '{{ .CommitDate }}'
     files:
-      - LICENSE
-      - README.md
+      - src: LICENSE
+        info:
+          owner: root
+          group: root
+          mode: 0644
+          mtime: '{{ .CommitDate }}'
+      - src: README.md
+        info:
+          owner: root
+          group: root
+          mode: 0644
+          mtime: '{{ .CommitDate }}'
+
+checksum:
+  name_template: checksums.txt
+
+source:
+  enabled: true
+  name_template: "n-gobgp_{{ .Version }}_source"

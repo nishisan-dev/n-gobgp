@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/osrg/gobgp/v4/api"
+	"github.com/osrg/gobgp/v4/internal/pkg/version"
 	config "github.com/osrg/gobgp/v4/pkg/config/kafka"
 	"github.com/osrg/gobgp/v4/pkg/event"
 	"github.com/prometheus/client_golang/prometheus"
@@ -137,6 +138,17 @@ func TestFanOutSharesProducerAndPreservesProtobuf(t *testing.T) {
 	require.NotEqual(t, a.record.Topic, b.record.Topic)
 	require.Equal(t, header(a.record, "event-id"), header(b.record, "event-id"))
 	require.Equal(t, "api.WatchEventResponse", header(a.record, "schema"))
+	identity := version.Get()
+	for key, value := range map[string]string{
+		"fork-name": identity.Product, "fork-version": identity.Version,
+		"fork-commit": identity.Commit, "fork-dirty": identity.Dirty,
+		"upstream-repository": identity.UpstreamRepository, "upstream-commit": identity.UpstreamCommit,
+		"gobgp-version": identity.UpstreamVersion,
+	} {
+		require.NotEmpty(t, value)
+		require.Equal(t, value, header(a.record, key))
+		require.Equal(t, value, header(b.record, key))
+	}
 	require.Equal(t, "192.0.2.1", string(a.record.Key))
 	var decoded api.WatchEventResponse
 	require.NoError(t, protojson.Unmarshal(a.record.Value, &decoded))
@@ -182,6 +194,7 @@ func TestReplayCurrentMigratesDestinationAndRetainsIdentity(t *testing.T) {
 	require.Equal(t, "network.bgp.migrated", replay.record.Topic)
 	require.Equal(t, original.record.Value, replay.record.Value)
 	require.Equal(t, original.record.Key, replay.record.Key)
+	require.Equal(t, original.record.Headers, replay.record.Headers, "replay preserves capture build identity")
 	require.Equal(t, header(original.record, "event-id"), header(replay.record, "event-id"))
 	waitEmpty(t, m2)
 }
