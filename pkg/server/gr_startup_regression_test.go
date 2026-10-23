@@ -25,7 +25,7 @@ func startupAddPeer(t *testing.T, s *BgpServer, address string, deferral uint32)
 	return p
 }
 
-func startupConnect(t *testing.T, p *peer, gr, restarting, tuples bool) *MockConnection {
+func startupConnect(t *testing.T, p *peer, gr, restarting, tuples bool, extra ...bgp.ParameterCapabilityInterface) *MockConnection {
 	t.Helper()
 	require.Eventually(t, func() bool { return p.State() == bgp.BGP_FSM_ACTIVE }, 5*time.Second, 10*time.Millisecond)
 	m := NewMockConnection()
@@ -33,6 +33,7 @@ func startupConnect(t *testing.T, p *peer, gr, restarting, tuples bool) *MockCon
 	t.Cleanup(func() { m.Close() })
 	p.fsm.connCh <- m
 	caps := []bgp.ParameterCapabilityInterface{bgp.NewCapFourOctetASNumber(65000), bgp.NewCapMultiProtocol(bgp.RF_IPv4_UC), bgp.NewCapMultiProtocol(bgp.RF_IPv6_UC)}
+	caps = append(caps, extra...)
 	if gr {
 		var fs []*bgp.CapGracefulRestartTuple
 		if tuples {

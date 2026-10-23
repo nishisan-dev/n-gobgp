@@ -75,11 +75,12 @@ type nopTimingHook struct{}
 func (n nopTimingHook) Observe(op FSMOperation, tOp, tWait time.Duration) {}
 
 type options struct {
-	grpcAddress string
-	grpcOption  []grpc.ServerOption
-	logger      *slog.Logger
-	logLevelVar *slog.LevelVar
-	timingHook  FSMTimingHook
+	grpcAddress      string
+	grpcOption       []grpc.ServerOption
+	logger           *slog.Logger
+	logLevelVar      *slog.LevelVar
+	timingHook       FSMTimingHook
+	refreshStaleTime time.Duration
 }
 
 type ServerOption func(*options)
@@ -107,6 +108,15 @@ func TimingHookOption(hook FSMTimingHook) ServerOption {
 	return func(o *options) {
 		o.timingHook = hook
 	}
+}
+
+// DefaultRouteRefreshStaleTime bounds stale retention after an incoming BoRR.
+const DefaultRouteRefreshStaleTime = 5 * time.Minute
+
+// RouteRefreshStaleTime configures the server-wide retention limit for an
+// incomplete Enhanced Route Refresh. Non-positive values disable the limit.
+func RouteRefreshStaleTime(d time.Duration) ServerOption {
+	return func(o *options) { o.refreshStaleTime = d }
 }
 
 const propagateBucketCount = 2048
@@ -155,6 +165,7 @@ func (d *sharedData) propagateBucket(path *table.Path) *sync.Mutex {
 // the field says otherwise, so read the comment on sharedData.mu before you
 // touch one of them from outside a management operation.
 type BgpServer struct {
+	refreshStaleTime               time.Duration // immutable after construction
 	initialConfigurationGeneration string
 	initialConfigurationGate       chan struct{}
 	localRestartMu                 sync.Mutex // serializes staging from parallel FSM callbacks
@@ -203,7 +214,8 @@ type BgpServer struct {
 
 func NewBgpServer(opt ...ServerOption) *BgpServer {
 	opts := options{
-		timingHook: nopTimingHook{},
+		timingHook:       nopTimingHook{},
+		refreshStaleTime: DefaultRouteRefreshStaleTime,
 	}
 	for _, o := range opt {
 		o(&opts)
@@ -218,21 +230,22 @@ func NewBgpServer(opt ...ServerOption) *BgpServer {
 	shared := newSharedData()
 
 	s := &BgpServer{
-		shared:       shared,
-		neighborMap:  make(map[netip.Addr]*peer),
-		rrClusterIDs: make(map[netip.Addr]struct{}),
-		peerGroupMap: make(map[string]*peerGroup),
-		policy:       table.NewRoutingPolicy(logger),
-		mgmtCh:       make(chan *mgmtOp),
-		closeCh:      make(chan struct{}),
-		watcherMap:   make(map[watchEventType][]*watcher),
-		uuidMap:      make(map[string]uuid.UUID),
-		roaManager:   newROAManager(roaTable, logger),
-		roaTable:     roaTable,
-		logger:       logger,
-		logLevelVar:  lvl,
-		timingHook:   opts.timingHook,
-		shutdownWG:   &sync.WaitGroup{},
+		refreshStaleTime: opts.refreshStaleTime,
+		shared:           shared,
+		neighborMap:      make(map[netip.Addr]*peer),
+		rrClusterIDs:     make(map[netip.Addr]struct{}),
+		peerGroupMap:     make(map[string]*peerGroup),
+		policy:           table.NewRoutingPolicy(logger),
+		mgmtCh:           make(chan *mgmtOp),
+		closeCh:          make(chan struct{}),
+		watcherMap:       make(map[watchEventType][]*watcher),
+		uuidMap:          make(map[string]uuid.UUID),
+		roaManager:       newROAManager(roaTable, logger),
+		roaTable:         roaTable,
+		logger:           logger,
+		logLevelVar:      lvl,
+		timingHook:       opts.timingHook,
+		shutdownWG:       &sync.WaitGroup{},
 	}
 	s.roaManager.onChange = s.revalidateRPKI
 	s.bmpManager = newBmpClientManager(s)
@@ -1443,14 +1456,12 @@ func (s *BgpServer) handleRouteRefresh(peer *peer, e *fsmMsg) {
 				return
 			}
 		}
-		peer.beginRefresh(rf)
+		s.beginRefresh(peer, rf)
 	case 2:
 		if !peer.supportsEnhancedRefresh() {
 			return
 		}
-		removed, accepted := peer.endRefresh(rf)
-		s.notifyAdjInWithdrawWatcher(peer, removed)
-		s.propagateUpdate(peer, accepted)
+		s.endRefresh(peer, rf)
 	}
 }
 
@@ -1928,6 +1939,7 @@ func (s *BgpServer) propagateUpdateToNeighbors(rib *table.TableManager, source *
 }
 
 func (s *BgpServer) stopNeighbor(peer *peer, oldState bgp.FSMState, e *fsmMsg) {
+	peer.cancelRefresh()
 	peer.stopPeerRestarting()
 	// Guard against the TOCTOU window between the RUnlock and write-Lock in
 	// handleFSMMessage: only delete if the map still holds this exact peer
@@ -2030,7 +2042,7 @@ func (s *BgpServer) handleFSMMessage(peer *peer, e *fsmMsg) {
 			// Publish the down state before clearing advertised-route state.
 			// This avoids rebuilding RIB-out bookkeeping by propagation that starts after the reset.
 			peer.fsm.state.Store(nextState)
-			peer.refreshPending = nil
+			peer.cancelRefresh()
 			s.resetAdvertisedRoutes(peer)
 			s.dropAdjRIBIn(peer, dropFamilies)
 

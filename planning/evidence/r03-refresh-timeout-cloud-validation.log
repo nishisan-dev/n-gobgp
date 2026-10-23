@@ -1,0 +1,118 @@
+BASELINE: two expected failures (exit 1); new option supplied by a test-only no-op compatibility shim
+--- FAIL: TestRefreshTimeoutRemovesOnlyOmittedPathsAndConvergesEvents (3.02s)
+    refresh_timeout_regression_test.go:48:
+            Error Trace:    /work/pkg/server/refresh_regression_test.go:326
+                                        /usr/local/go/src/runtime/asm_amd64.s:1264
+            Error:          Not equal:
+                            expected: 3
+                            actual  : 5
+            Messages:       adj-in: map[192.0.2.10:2001:db8:10::/48:33:true 192.0.2.10:203.0.113.0/24:11:true 192.0.2.10:203.0.113.0/24:22:true 192.0.2.10:203.0.114.0/24:11:true 192.0.2.11:198.51.100.0/24:11:true]
+    refresh_timeout_regression_test.go:48:
+            Error Trace:    /work/pkg/server/refresh_regression_test.go:327
+                                        /usr/local/go/src/runtime/asm_amd64.s:1264
+            Error:          Not equal:
+                            expected: 3
+                            actual  : 4
+            Messages:       post-policy: map[192.0.2.10:2001:db8:10::/48:33:true 192.0.2.10:203.0.113.0/24:11:true 192.0.2.10:203.0.113.0/24:22:true 192.0.2.11:198.51.100.0/24:11:true]
+    refresh_timeout_regression_test.go:48:
+            Error Trace:    /work/pkg/server/refresh_regression_test.go:323
+                                        /work/pkg/server/refresh_timeout_regression_test.go:48
+            Error:          Condition never satisfied
+            Test:           TestRefreshTimeoutRemovesOnlyOmittedPathsAndConvergesEvents
+--- FAIL: TestRefreshTimeoutRepeatedBoRRDoesNotExtendRetention (2.00s)
+    refresh_timeout_regression_test.go:81:
+            Error Trace:    /work/pkg/server/refresh_timeout_regression_test.go:81
+            Error:          Condition never satisfied
+            Test:           TestRefreshTimeoutRepeatedBoRRDoesNotExtendRetention
+            Messages:       a stream of BoRR markers must not keep omitted routes forever
+FAIL
+FAIL    github.com/osrg/gobgp/v4/pkg/server 5.355s
+FAIL
+
+
+FINAL: targeted x3, full race, lint, 22 protocol cases, Markdown and workflow checks (exit 0)
+ok      github.com/osrg/gobgp/v4/pkg/server 5.861s
+?       github.com/osrg/gobgp/v4/api    [no test files]
+ok      github.com/osrg/gobgp/v4/cmd/gobgp  1.632s
+?       github.com/osrg/gobgp/v4/cmd/gobgpd [no test files]
+ok      github.com/osrg/gobgp/v4/internal/pkg/netutils  1.474s
+ok      github.com/osrg/gobgp/v4/internal/pkg/table 4.214s
+ok      github.com/osrg/gobgp/v4/internal/pkg/version   1.141s
+ok      github.com/osrg/gobgp/v4/pkg/apiutil    1.415s
+ok      github.com/osrg/gobgp/v4/pkg/config 1.696s
+?       github.com/osrg/gobgp/v4/pkg/config/kafka   [no test files]
+ok      github.com/osrg/gobgp/v4/pkg/config/oc  1.191s
+ok      github.com/osrg/gobgp/v4/pkg/event  1.294s
+ok      github.com/osrg/gobgp/v4/pkg/metrics    6.125s
+ok      github.com/osrg/gobgp/v4/pkg/packet/bfd 1.197s
+ok      github.com/osrg/gobgp/v4/pkg/packet/bgp 1.710s
+ok      github.com/osrg/gobgp/v4/pkg/packet/bmp 1.124s
+ok      github.com/osrg/gobgp/v4/pkg/packet/mrt 1.040s
+ok      github.com/osrg/gobgp/v4/pkg/packet/rtr 1.071s
+ok      github.com/osrg/gobgp/v4/pkg/server 185.533s
+ok      github.com/osrg/gobgp/v4/pkg/sink/kafka 5.736s
+ok      github.com/osrg/gobgp/v4/pkg/zebra  1.044s
+?       github.com/osrg/gobgp/v4/tools/config   [no test files]
+?       github.com/osrg/gobgp/v4/tools/mrt-updates  [no test files]
+0 issues.
+{"case": "rpki-import", "result": "PASS"}
+{"case": "rpki-export", "result": "PASS"}
+{"case": "vrf-nht", "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 1, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 1, "enhanced": false, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": false, "result": "PASS"}
+{"case": "enhanced-refresh", "result": "PASS"}
+{"case": "gr-eor-family", "result": "PASS"}
+{"case": "gr-reconnect-preserve", "result": "PASS"}
+{"case": "gr-reconnect-clear-forwarding", "result": "PASS"}
+{"case": "gr-reconnect-withdraw-capability", "result": "PASS"}
+{"case": "llgr-eor", "result": "PASS"}
+{"case": "llgr-expiry", "result": "PASS"}
+{"case": "llgr-clear-forwarding", "result": "PASS"}
+{"case": "llgr-consecutive", "result": "PASS"}
+{"case": "llgr-llgr-only", "result": "PASS"}
+{"case": "refresh-timeout", "repeated-borr": false, "disabled": false, "result": "PASS"}
+{"case": "refresh-timeout", "repeated-borr": true, "disabled": false, "result": "PASS"}
+{"case": "refresh-timeout", "repeated-borr": false, "disabled": true, "result": "PASS"}
+{"case": "refresh-timeout-disconnect", "llgr": false, "result": "PASS"}
+{"case": "refresh-timeout-disconnect", "llgr": true, "result": "PASS"}
+
+
+SPELLING: exit 0; subsequent dependency discovery errors belong to the initial avoided-functions wrapper and are corrected below
+go: downloading google.golang.org/grpc v1.83.2
+go: downloading google.golang.org/protobuf v1.36.11
+go: downloading github.com/spf13/cobra v1.9.1
+go: downloading golang.org/x/text v0.41.0
+go: downloading github.com/coreos/go-systemd/v22 v22.5.0
+go: downloading github.com/orcaman/concurrent-map/v2 v2.0.1
+go: downloading github.com/vishvananda/netlink v1.3.1
+go: downloading golang.org/x/sys v0.47.0
+go: downloading github.com/getsentry/sentry-go v0.34.1
+go: downloading github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
+go: downloading github.com/jessevdk/go-flags v1.6.1
+go: downloading github.com/kr/pretty v0.3.1
+go: downloading github.com/prometheus/client_golang v1.16.0
+go: downloading golang.org/x/time v0.12.0
+go: downloading github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da
+go: downloading github.com/gaissmai/bart v0.26.1
+go: downloading github.com/k-sone/critbitgo v1.4.0
+go: downloading github.com/segmentio/fasthash v1.0.3
+go: downloading github.com/google/uuid v1.6.0
+go: downloading github.com/fsnotify/fsnotify v1.9.0
+go: downloading github.com/go-viper/mapstructure/v2 v2.4.0
+go: downloading github.com/spf13/viper v1.20.1
+go: downloading github.com/twmb/franz-go v1.21.0
+go: downloading go.etcd.io/bbolt v1.4.3
+go: downloading github.com/BurntSushi/toml v1.5.0
+go: downloading github.com/eapache/channels v1.1.0
+PASS spelling and avoided functions
+github.com/BurntSushi/toml@v1.5.0: Get "https://proxy.golang.org/github.com/%21burnt%21sushi/toml/@v/v1.5.0.mod": dial tcp: lookup proxy.golang.org on 209.126.15.53:53: dial udp 209.126.15.53:53: connect: network is unreachable
+
+
+AVOIDED FUNCTIONS: explicit package discovery with mounted dependency caches (exit 0)
+PASS package discovery and avoided functions with dependency cache
+
+
+SOURCE IDENTITY: exit 0
+PASS identical cloud and local build inputs: 284
