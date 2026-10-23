@@ -1,0 +1,184 @@
+{
+  "status": "PASS",
+  "scope": "Cloud regression suite, protocol scenarios and the explicit static checks listed below",
+  "date_utc": "2026-10-23T18:32:33.549759+00:00",
+  "base_commit": "08e2eafe2bb057541e944c1c493ec82d71883a5e",
+  "branch": "codex/r03-gr-startup-barrier",
+  "issues": [
+    16,
+    17
+  ],
+  "source_archive_sha256": "435d45cf2a3ffc7d908f0a4c8fc3ccadb83ee99be73474eb738b0356596e5cd2",
+  "build_input_manifest_sha256": "58ef4441e972a8a73bd97ead8906db51fff290e59bf237c61188c62b6a61abe8",
+  "verified_identical_cloud_and_local_build_inputs": 280,
+  "changed_source_sha256": {
+    ".github/workflows/ci.yml": "b20af88b221911e098a623db3abb818419f221976398033c8341510d63be3988",
+    "api/gobgp.pb.go": "000f10e84d9dedc0c1f4ab8f28b9c27898956ab253343ae2624b39f05f65d362",
+    "api/gobgp_grpc.pb.go": "7812c3e58f900e27a0130f2876ceb7bf595ca521fd71a4532cb26f644afb737b",
+    "docs/sources/graceful-restart.md": "d9664efc247f64634d25e0c08a9b4c0db03bc43896c84e84f679bebc517185ee",
+    "pkg/server/fsm.go": "ddf5bce50efff9888b72785386d3fbb6fb56a454ae1a6d92ebdb46d19adcab3a",
+    "pkg/server/gr_initial_configuration_test.go": "13d9e565d0207e9de84b038897295a38f2ad166b5911708964d9b69ed05868a3",
+    "pkg/server/gr_startup.go": "2f6028e99ba9a5a58dbae694dca6b27f7b1d6dc01d92be7928b9c6e21fbd1eec",
+    "pkg/server/gr_startup_regression_test.go": "324da3157528af37ec80df0195e5fffd5df44e1d498093d4dd73619636f13422",
+    "pkg/server/grpc_server.go": "345ac17b651aad0e425edcb3b35dff49a82a5dc4c95f94d0a6a4bf32d5c90808",
+    "pkg/server/peer.go": "f534a39cd830c0366205c7d3b1e17f47fa3040397a8f3d6bdadb116eb17bf455",
+    "pkg/server/server.go": "ce67c20bae977f9501f6b1deef2233e5e9183e0d05154553143c1ec0e78f3071",
+    "planning/roadmap-2026-10-23.md": "c7d3ab97d670f5c533d37722d8bea1275687ca7555ae9cd071f6b759350c1275",
+    "proto/api/gobgp.proto": "e37ae004634599dc2bce338f6bb32a174d495b6df3fb90dbfc0f9b33c271b6d6",
+    "tools/spell-check/dictionary.txt": "d3f7c6de9900a29f91435e40fb7fdc411b17754f26565c70662810839349034f"
+  },
+  "cloud": {
+    "ssh": "root@157.173.116.3",
+    "architecture": "linux/amd64",
+    "go": "go1.27.3",
+    "go_image": "golang:1.27.3@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc",
+    "tooling_image": "ngobgp-startup-checks:20261023 (same Go image plus Python, Markdown and spelling tools)",
+    "workspace": "/var/tmp/ngobgp-startup-20261023/release",
+    "cpus": 4,
+    "memory_bytes": 6442450944,
+    "regression_network": "none",
+    "published_ports": [],
+    "privileged": false
+  },
+  "execution_restrictions": {
+    "manual_local_tests_run": false,
+    "old_lab_192_168_5_89_used": false,
+    "ci_runs_authorized": true
+  },
+  "baseline": {
+    "expected_exit_code": 1,
+    "failing_regressions": 5,
+    "injected_test_sha256": "882682891f5609714e9bd0a7beccebd66e0e0f7f71d1523694221e747ad799c8"
+  },
+  "validation": [
+    {
+      "command": "go test -race ./pkg/server -run \"TestGRStartup|TestGRInitialConfiguration\" -count=3 -timeout=90s",
+      "exit_code": 0,
+      "top_level_tests": 14,
+      "repetitions": 3
+    },
+    {
+      "command": "go test -race ./... -count=1 -timeout=240s",
+      "exit_code": 0,
+      "server_duration_seconds": 181.959
+    },
+    {
+      "command": "golangci-lint run ./...",
+      "exit_code": 0,
+      "issues": 0
+    },
+    {
+      "command": "go build -race -o /tmp/gobgpd ./cmd/gobgpd",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 test/integration/r03_rpki_vrf.py --gobgpd /tmp/gobgpd",
+      "exit_code": 0,
+      "cases": 3
+    },
+    {
+      "command": "python3 test/integration/r03_refresh_addpath.py --gobgpd /tmp/gobgpd",
+      "exit_code": 0,
+      "cases": 6
+    },
+    {
+      "command": "python3 test/integration/r03_gr_llgr.py --gobgpd /tmp/gobgpd",
+      "exit_code": 0,
+      "cases": 8
+    },
+    {
+      "command": "buf lint; buf format --diff --exit-code; buf breaking --against /baseline; buf generate; diff -qr /expected /work/api",
+      "exit_code": 0,
+      "notes": "Generation uses remote pinned plugins; compilation and compatibility checks run on the cloud VM."
+    },
+    {
+      "command": "markdownlint docs/sources/graceful-restart.md planning/roadmap-2026-10-23.md; actionlint .github/workflows/*.yml",
+      "exit_code": 0
+    }
+  ],
+  "protocol_results": [
+    {
+      "case": "rpki-import",
+      "result": "PASS"
+    },
+    {
+      "case": "rpki-export",
+      "result": "PASS"
+    },
+    {
+      "case": "vrf-nht",
+      "result": "PASS"
+    },
+    {
+      "case": "refresh-addpath",
+      "send-max": 1,
+      "enhanced": true,
+      "result": "PASS"
+    },
+    {
+      "case": "refresh-addpath",
+      "send-max": 2,
+      "enhanced": true,
+      "result": "PASS"
+    },
+    {
+      "case": "refresh-addpath",
+      "send-max": 1,
+      "enhanced": false,
+      "result": "PASS"
+    },
+    {
+      "case": "refresh-addpath",
+      "send-max": 2,
+      "enhanced": false,
+      "result": "PASS"
+    },
+    {
+      "case": "enhanced-refresh",
+      "result": "PASS"
+    },
+    {
+      "case": "gr-eor-family",
+      "result": "PASS"
+    },
+    {
+      "case": "gr-reconnect-preserve",
+      "result": "PASS"
+    },
+    {
+      "case": "gr-reconnect-clear-forwarding",
+      "result": "PASS"
+    },
+    {
+      "case": "gr-reconnect-withdraw-capability",
+      "result": "PASS"
+    },
+    {
+      "case": "llgr-eor",
+      "result": "PASS"
+    },
+    {
+      "case": "llgr-expiry",
+      "result": "PASS"
+    },
+    {
+      "case": "llgr-clear-forwarding",
+      "result": "PASS"
+    },
+    {
+      "case": "llgr-consecutive",
+      "result": "PASS"
+    },
+    {
+      "case": "llgr-llgr-only",
+      "result": "PASS"
+    }
+  ],
+  "notes": [
+    "Copied checkout has no .git: actionlint auto-discovery initially returned 3 after all regression/protocol checks passed; explicit workflow paths passed in the separate docs check.",
+    "Added lifecycle to the spelling dictionary after the spelling scan reported that valid word. Required CI also checks spelling.",
+    "The configuration barrier is optional and needs client adoption and acknowledgement; it is neither rollback nor a convergence/capture boundary.",
+    "Kafka broker integration is verified by the required CI job; cloud default Go tests do not enable external broker tests.",
+    "Capacity, independent interoperability, incomplete-refresh bounds and further local-restart/RTC/LLGR combinations remain R03 backlog."
+  ]
+}

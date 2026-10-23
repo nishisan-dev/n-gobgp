@@ -128,8 +128,10 @@ type peer struct {
 	// sees paths after ToLocal().
 	advertisedCount sync.Map
 	// map[table.PathLocalKey]struct{}
-	sendMaxPathFiltered sync.Map
-	llgrTimers          map[bgp.Family]chan struct{} // protected by fsm.lock
+	sendMaxPathFiltered    sync.Map
+	llgrTimers             map[bgp.Family]chan struct{} // protected by fsm.lock
+	localRestartRegistered bool                         // protected by fsm.lock
+	startupRefresh         sync.Map                     // family requests deferred until startup selection
 	// Route Target Membership handler after import policy (for constrained VPN distribution).
 	rtmHandler *table.RouteTargetMembershipHandler
 	// Route refresh in progress, during an established session or route refresh, this need to be atomic to avoid out of order updates
@@ -966,8 +968,8 @@ func (peer *peer) handleUpdate(e *fsmMsg, localClusterIDs map[netip.Addr]struct{
 	return nil, nil, nil, false
 }
 
-func (peer *peer) startFSM(wg *sync.WaitGroup, callback fsmCallback) {
-	peer.fsm.start(wg, callback)
+func (peer *peer) startFSM(wg *sync.WaitGroup, callback fsmCallback, activation ...<-chan struct{}) {
+	peer.fsm.start(wg, callback, activation...)
 }
 
 func (peer *peer) stopFSM() {

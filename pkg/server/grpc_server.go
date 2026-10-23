@@ -2236,7 +2236,11 @@ func newGlobalFromAPIStruct(a *api.Global) *oc.Global {
 }
 
 func (s *server) StartBgp(ctx context.Context, r *api.StartBgpRequest) (*api.StartBgpResponse, error) {
-	return &api.StartBgpResponse{}, s.bgpServer.StartBgp(ctx, r)
+	return s.bgpServer.startBgp(ctx, r)
+}
+
+func (s *server) CompleteInitialConfiguration(ctx context.Context, r *api.CompleteInitialConfigurationRequest) (*api.CompleteInitialConfigurationResponse, error) {
+	return s.bgpServer.CompleteInitialConfiguration(ctx, r)
 }
 
 func (s *server) StopBgp(ctx context.Context, r *api.StopBgpRequest) (*api.StopBgpResponse, error) {

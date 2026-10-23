@@ -910,18 +910,8 @@ func (fsm *fsm) stateChange(nextState bgp.FSMState, reason *fsmStateReason) {
 				// just ignore
 			}
 
-			// RFC 4724 3
-			// The most significant bit is defined as the Restart State (R)
-			// bit, ...(snip)... When set (value 1), this bit
-			// indicates that the BGP speaker has restarted, and its peer MUST
-			// NOT wait for the End-of-RIB marker from the speaker before
-			// advertising routing information to the speaker.
-			if conf.GracefulRestart.State.LocalRestarting && cap.Flags&0x08 != 0 {
-				fsm.logger.Debug("peer has restarted, skipping wait for EOR", slog.String("State", fsm.state.String()))
-				for i := range conf.AfiSafis {
-					conf.AfiSafis[i].MpGracefulRestart.State.EndOfRibReceived = true
-				}
-			}
+			// The startup coordinator excludes R-bit peers without inventing EOR.
+
 			if conf.GracefulRestart.Config.NotificationEnabled && cap.Flags&0x04 > 0 {
 				conf.GracefulRestart.State.NotificationEnabled = true
 			}
@@ -994,7 +984,7 @@ func (fsm *fsm) sendNotification(conn net.Conn, msg *bgp.BGPMessage) error {
 	return err
 }
 
-func (fsm *fsm) start(wg *sync.WaitGroup, callback func(*fsmMsg)) {
+func (fsm *fsm) start(wg *sync.WaitGroup, callback func(*fsmMsg), activation ...<-chan struct{}) {
 	ctx, cancel := context.WithCancel(context.Background())
 	fsm.h = &fsmHandler{
 		fsm:       fsm,
@@ -1003,6 +993,10 @@ func (fsm *fsm) start(wg *sync.WaitGroup, callback func(*fsmMsg)) {
 		ctxCancel: cancel,
 		callback:  callback,
 	}
+	if len(activation) > 0 {
+		fsm.h.activation = activation[0]
+	}
+
 	wg.Add(1)
 	go fsm.h.loop(ctx, wg)
 }
@@ -1014,7 +1008,8 @@ func (fsm *fsm) stop() {
 type fsmCallback func(*fsmMsg)
 
 type fsmHandler struct {
-	restartConn   net.Conn // owned by the FSM loop until active accepts it
+	activation    <-chan struct{} // optional initial configuration barrier
+	restartConn   net.Conn        // owned by the FSM loop until active accepts it
 	fsm           *fsm
 	allowLoopback bool
 	outgoing      *channels.InfiniteChannel
@@ -2487,6 +2482,22 @@ func (h *fsmHandler) established(ctx context.Context) (bgp.FSMState, *fsmStateRe
 
 func (h *fsmHandler) loop(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
+	defer h.cleanup()
+activation:
+	for h.activation != nil {
+		select {
+		case <-ctx.Done():
+			return
+		case <-h.activation:
+			break activation
+		case stateOp := <-h.fsm.adminStateCh:
+			_ = h.changeadminState(stateOp.State)
+		case <-h.fsm.resetCh:
+			// There is no BGP session to reset while configuration is pending.
+		case conn := <-h.fsm.connCh:
+			conn.Close()
+		}
+	}
 
 	fsm := h.fsm
 	oldState := fsm.state.Load()
@@ -2580,6 +2591,10 @@ func (h *fsmHandler) loop(ctx context.Context, wg *sync.WaitGroup) {
 		fsm.state.Store(nextState)
 		oldState = nextState
 	}
+}
+
+func (h *fsmHandler) cleanup() {
+	fsm := h.fsm
 
 	if h.restartConn != nil {
 		h.restartConn.Close()
