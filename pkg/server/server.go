@@ -225,6 +225,7 @@ func NewBgpServer(opt ...ServerOption) *BgpServer {
 		timingHook:   opts.timingHook,
 		shutdownWG:   &sync.WaitGroup{},
 	}
+	s.roaManager.onChange = s.revalidateRPKI
 	s.bmpManager = newBmpClientManager(s)
 	s.mrtManager = newMrtManager(s)
 	s.bfdServer = NewBfdServer(s, logger)
@@ -1453,11 +1454,11 @@ func (s *BgpServer) propagateUpdate(peer *peer, pathList []*table.Path) {
 				continue
 			}
 			path = path.ToGlobal(vrfObj)
-			if s.zclient != nil {
-				s.zclient.pathVrfMu.Lock()
-				s.zclient.pathVrfMap[path] = vrfObj.Id
-				s.zclient.pathVrfMu.Unlock()
-			}
+		}
+		if s.zclient != nil && !path.IsWithdraw {
+			s.zclient.cacheLock.Lock()
+			s.zclient.cache(path.NexthopVrfID()).applyToNewPathList([]*table.Path{path})
+			s.zclient.cacheLock.Unlock()
 		}
 
 		func(path *table.Path) {
@@ -2679,11 +2680,6 @@ func pathTokey(path *table.Path) string {
 func (s *BgpServer) addPathList(vrfId string, pathList []*table.Path) error {
 	err := s.fixupApiPath(vrfId, pathList)
 	if err == nil {
-		if s.zclient != nil {
-			s.zclient.cacheLock.Lock()
-			s.zclient.nexthopCache.applyToNewPathList(pathList)
-			s.zclient.cacheLock.Unlock()
-		}
 		s.propagateUpdate(nil, pathList)
 	}
 	return err
@@ -3069,12 +3065,18 @@ func (s *BgpServer) DeleteVrf(ctx context.Context, r *api.DeleteVrfRequest) erro
 				s.zclient.releaseMplsLabel(vrf.MplsLabel)
 			}
 		}
+		vrf, _ := s.globalRib.GetVrf(name)
 		pathList, err := s.globalRib.DeleteVrf(name)
 		if err != nil {
 			return err
 		}
 		if len(pathList) > 0 {
 			s.propagateUpdate(nil, pathList)
+		}
+		if s.zclient != nil && vrf != nil {
+			s.zclient.cacheLock.Lock()
+			delete(s.zclient.nexthopCache, vrf.Id)
+			s.zclient.cacheLock.Unlock()
 		}
 		return nil
 	}, true)
@@ -3113,6 +3115,19 @@ func (s *BgpServer) softResetIn(addr string, family bgp.Family) error {
 		s.propagateUpdate(peer, pathList)
 	}
 	return err
+}
+
+// Re-evaluate retained input routes and export policies against the committed
+// VRPs. Replaying Adj-RIB-In also restores paths rejected by the previous VRPs.
+// Run on the dispatcher, never from an RTR reader goroutine.
+func (s *BgpServer) revalidateRPKI() {
+	if s.globalRib == nil || s.active() != nil {
+		return
+	}
+	for _, family := range []bgp.Family{bgp.RF_IPv4_UC, bgp.RF_IPv6_UC} {
+		_ = s.softResetIn("", family)
+		_ = s.softResetOut("", family, false)
+	}
 }
 
 func (s *BgpServer) softResetOut(addr string, family bgp.Family, deferral bool) error {

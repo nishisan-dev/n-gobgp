@@ -1,0 +1,61 @@
+BASELINE REPRODUCTION AND INITIAL CORRECTION
+go version go1.27.3 linux/arm64
+    wait_for(lambda: not observer.has('203.0.113.0/24') and observer.has('198.51.100.0/24'), 'stale export after invalid VRP')
+AssertionError: stale export after invalid VRP
+Confirmed baseline regression: rpki-import
+    assert all(p.has('203.0.113.0/24') for p in observers[1:]), 'cross-VRF/global withdrawal'
+AssertionError: cross-VRF/global withdrawal
+Confirmed baseline regression: vrf
+?   	github.com/osrg/gobgp/v4/api	[no test files]
+ok  	github.com/osrg/gobgp/v4/cmd/gobgp	1.077s
+?   	github.com/osrg/gobgp/v4/cmd/gobgpd	[no test files]
+ok  	github.com/osrg/gobgp/v4/internal/pkg/netutils	(cached)
+ok  	github.com/osrg/gobgp/v4/internal/pkg/table	2.927s
+ok  	github.com/osrg/gobgp/v4/internal/pkg/version	1.033s
+ok  	github.com/osrg/gobgp/v4/pkg/apiutil	(cached)
+ok  	github.com/osrg/gobgp/v4/pkg/config	1.245s
+?   	github.com/osrg/gobgp/v4/pkg/config/kafka	[no test files]
+ok  	github.com/osrg/gobgp/v4/pkg/config/oc	1.177s
+ok  	github.com/osrg/gobgp/v4/pkg/event	(cached)
+ok  	github.com/osrg/gobgp/v4/pkg/metrics	3.311s
+ok  	github.com/osrg/gobgp/v4/pkg/packet/bfd	(cached)
+ok  	github.com/osrg/gobgp/v4/pkg/packet/bgp	1.175s
+ok  	github.com/osrg/gobgp/v4/pkg/packet/bmp	(cached)
+ok  	github.com/osrg/gobgp/v4/pkg/packet/mrt	(cached)
+ok  	github.com/osrg/gobgp/v4/pkg/packet/rtr	(cached)
+ok  	github.com/osrg/gobgp/v4/pkg/server	166.276s
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka	5.616s
+ok  	github.com/osrg/gobgp/v4/pkg/zebra	(cached)
+?   	github.com/osrg/gobgp/v4/tools/config	[no test files]
+?   	github.com/osrg/gobgp/v4/tools/mrt-updates	[no test files]
+{"case": "rpki-import", "result": "PASS"}
+{"case": "rpki-export", "result": "PASS"}
+{"case": "vrf-nht", "result": "PASS"}
+
+FINAL SOURCE VALIDATION (including multipath label regression)
+go version go1.27.3 linux/arm64
+?   	github.com/osrg/gobgp/v4/api	[no test files]
+ok  	github.com/osrg/gobgp/v4/cmd/gobgp	(cached)
+?   	github.com/osrg/gobgp/v4/cmd/gobgpd	[no test files]
+ok  	github.com/osrg/gobgp/v4/internal/pkg/netutils	(cached)
+ok  	github.com/osrg/gobgp/v4/internal/pkg/table	(cached)
+ok  	github.com/osrg/gobgp/v4/internal/pkg/version	(cached)
+ok  	github.com/osrg/gobgp/v4/pkg/apiutil	(cached)
+ok  	github.com/osrg/gobgp/v4/pkg/config	1.099s
+?   	github.com/osrg/gobgp/v4/pkg/config/kafka	[no test files]
+ok  	github.com/osrg/gobgp/v4/pkg/config/oc	(cached)
+ok  	github.com/osrg/gobgp/v4/pkg/event	(cached)
+ok  	github.com/osrg/gobgp/v4/pkg/metrics	3.363s
+ok  	github.com/osrg/gobgp/v4/pkg/packet/bfd	(cached)
+ok  	github.com/osrg/gobgp/v4/pkg/packet/bgp	1.205s
+ok  	github.com/osrg/gobgp/v4/pkg/packet/bmp	(cached)
+ok  	github.com/osrg/gobgp/v4/pkg/packet/mrt	(cached)
+ok  	github.com/osrg/gobgp/v4/pkg/packet/rtr	(cached)
+ok  	github.com/osrg/gobgp/v4/pkg/server	167.067s
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka	5.585s
+ok  	github.com/osrg/gobgp/v4/pkg/zebra	(cached)
+?   	github.com/osrg/gobgp/v4/tools/config	[no test files]
+?   	github.com/osrg/gobgp/v4/tools/mrt-updates	[no test files]
+{"case": "rpki-import", "result": "PASS"}
+{"case": "rpki-export", "result": "PASS"}
+{"case": "vrf-nht", "result": "PASS"}

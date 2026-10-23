@@ -101,7 +101,11 @@ type originInfo struct {
 	noImplicitWithdraw bool
 	isFromExternal     bool
 	eor                bool
+	// Resolution scope belongs to the originating path, not an importing VRF.
+	nexthopVrfID uint32
 }
+
+func (path *Path) NexthopVrfID() uint32 { return path.OriginInfo().nexthopVrfID }
 
 type RpkiValidationReasonType string
 
@@ -1480,6 +1484,7 @@ func (v *Vrf) ToGlobalPath(path *Path) error {
 	// The NLRI now carries the RD, so the string that the destination keys
 	// such as GetDestLocalKey are built from has to follow it.
 	path.OriginInfo().nlriString = path.OriginInfo().nlri.String()
+	path.OriginInfo().nexthopVrfID = v.Id
 	path.SetExtCommunities(v.ExportRt, false)
 	path.SetNexthop(nh)
 	return nil
@@ -1546,6 +1551,8 @@ func (p *Path) ToGlobal(vrf *Vrf) *Path {
 		return p
 	}
 	path := NewPath(newFamily, p.OriginInfo().source, bgp.PathNLRI{NLRI: nlri}, p.IsWithdraw, p.GetPathAttrs(), p.GetTimestamp(), false)
+	path.OriginInfo().nexthopVrfID = vrf.Id
+	path.IsNexthopInvalid = p.IsNexthopInvalid
 	path.SetExtCommunities(vrf.ExportRt, false)
 	path.localID = p.localID
 	path.remoteID = p.remoteID
@@ -1579,6 +1586,7 @@ func (p *Path) ToLocal() *Path {
 		return p
 	}
 	path := NewPath(newFamily, p.OriginInfo().source, bgp.PathNLRI{NLRI: nlri}, p.IsWithdraw, p.GetPathAttrs(), p.GetTimestamp(), false)
+	path.OriginInfo().nexthopVrfID = p.NexthopVrfID()
 	switch f {
 	case bgp.RF_IPv4_VPN, bgp.RF_IPv6_VPN:
 		path.delPathAttr(bgp.BGP_ATTR_TYPE_EXTENDED_COMMUNITIES)

@@ -69,9 +69,14 @@ func (r *roaBucket) GetEntries() []*ROA {
 }
 
 type ROATable struct {
-	trees  map[bgp.Family]*critbitgo.Net
-	logger *slog.Logger
+	trees    map[bgp.Family]*critbitgo.Net
+	logger   *slog.Logger
+	revision uint64
 }
+
+// Revision changes only when a stored VRP is added or removed. The caller
+// provides the same synchronization used for the rest of the ROA table.
+func (rt *ROATable) Revision() uint64 { return rt.revision }
 
 func NewROATable(logger *slog.Logger) *ROATable {
 	m := make(map[bgp.Family]*critbitgo.Net)
@@ -122,6 +127,7 @@ func (rt *ROATable) Add(roa *ROA) {
 		}
 	}
 	b.entries = append(b.entries, roa)
+	rt.revision++
 	sort.Slice(b.entries, func(i, j int) bool {
 		r1 := b.entries[i]
 		r2 := b.entries[j]
@@ -146,6 +152,7 @@ func (rt *ROATable) Delete(roa *ROA) {
 		for i, r := range bucket.entries {
 			if r.Equal(roa) {
 				bucket.entries = append(bucket.entries[:i], bucket.entries[i+1:]...)
+				rt.revision++
 				return
 			}
 		}
@@ -167,6 +174,8 @@ func (rt *ROATable) DeleteAll(network string) {
 			for _, r := range b.entries {
 				if r.Src != network {
 					newEntries = append(newEntries, r)
+				} else {
+					rt.revision++
 				}
 			}
 			if len(newEntries) > 0 {
