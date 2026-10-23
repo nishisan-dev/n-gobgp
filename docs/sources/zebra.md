@@ -100,3 +100,21 @@ $ gobgp global rib
 ```
 
 You can see connected routes stored in the GoBGP global rib.
+
+## Nexthop resolution across VRFs in n-gobgp
+
+Nexthop tracking uses the originating route's resolution VRF. A notification
+for an address in one VRF changes only paths resolved in that VRF; the same
+address in other VRFs and the global table (VRF 0) remains independent.
+Importing a VPN route into another VRF does not change its resolution scope.
+Scope survives path cloning, policy attribute changes and VPN/local conversion.
+
+Registration and reachability caches use the same VRF scope. Newly received
+BGP and API routes inherit only their own scope's cached reachability; removing
+a VRF clears its cache before the numeric ID can be reused. Multipath route
+messages preserve each nexthop's VRF and MPLS labels independently.
+
+The R03 protocol regression uses a ZAPI v6 fixture with the FRR 8.1 command
+layout and real BGP sockets. It does not replace interoperability testing with
+a complete FRR installation. See
+[issue #5](https://github.com/nishisan-dev/n-gobgp/issues/5).

@@ -787,10 +787,26 @@ jobs:
           version: v2.19.0
           args: check
 
+  r03-protocol:
+    name: RPKI and VRF protocol regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.3"
+      - name: verify BGP observations after RTR and VRF-scoped ZAPI changes
+        env:
+          GORACE: halt_on_error=1
+        run: |
+          go build -race -o "$RUNNER_TEMP/gobgpd-r03" ./cmd/gobgpd
+          python3 test/integration/r03_rpki_vrf.py --gobgpd "$RUNNER_TEMP/gobgpd-r03"
+
   required:
     name: required
     if: ${{ always() }}
-    needs: [crossbuild, unit, kafka-events, unit386, protobuf-check, yang-check, golangci, embedded, lintdoc, build, router, evpn, flowspec, global-policy, graceful-restart, ibgp, rr, as2, ipv4-v6, malformed, rs-policy-grpc, rs-policy, softreset, rs1, rs2, llgr, vrf-neighbor1, vrf-neighbor2, rtc, unnumbered, aspath, addpath, malformed-handling, confederation, zebra, zebra-nht, zapi-v3, zapi-v3-multipath, mup, bgp-ls, tcp-md5, tcp-ao, build-identity]
+    needs: [crossbuild, unit, kafka-events, unit386, protobuf-check, yang-check, golangci, embedded, lintdoc, build, router, evpn, flowspec, global-policy, graceful-restart, ibgp, rr, as2, ipv4-v6, malformed, rs-policy-grpc, rs-policy, softreset, rs1, rs2, llgr, vrf-neighbor1, vrf-neighbor2, rtc, unnumbered, aspath, addpath, malformed-handling, confederation, zebra, zebra-nht, zapi-v3, zapi-v3-multipath, mup, bgp-ls, tcp-md5, tcp-ao, build-identity, r03-protocol]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6

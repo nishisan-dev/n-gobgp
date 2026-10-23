@@ -62,6 +62,19 @@ type roaManager struct {
 	clientMap map[string]*roaClient
 	table     *table.ROATable
 	logger    *slog.Logger
+	onChange  func()
+	revision  uint64
+}
+
+// Notify once after an RTR transaction or an administrative cache removal.
+// All callers run on the server dispatcher while holding shared.mu.
+func (m *roaManager) notifyChange() {
+	if revision := m.table.Revision(); revision != m.revision {
+		m.revision = revision
+		if m.onChange != nil {
+			m.onChange()
+		}
+	}
 }
 
 func newROAManager(table *table.ROATable, logger *slog.Logger) *roaManager {
@@ -94,6 +107,7 @@ func (m *roaManager) AddServer(host string, lifetime int64) error {
 }
 
 func (m *roaManager) DeleteServer(host string) error {
+	defer m.notifyChange()
 	client, ok := m.clientMap[host]
 	if !ok {
 		return fmt.Errorf("ROA server doesn't exists %s", host)
@@ -115,6 +129,7 @@ func (m *roaManager) Enable(address string) error {
 }
 
 func (m *roaManager) Disable(address string) error {
+	defer m.notifyChange()
 	for network, client := range m.clientMap {
 		add, _, _ := net.SplitHostPort(network)
 		if add == address {
@@ -131,6 +146,7 @@ func (m *roaManager) Reset(address string) error {
 }
 
 func (m *roaManager) SoftReset(address string) error {
+	defer m.notifyChange()
 	for network, client := range m.clientMap {
 		add, _, _ := net.SplitHostPort(network)
 		if add == address {
@@ -172,7 +188,7 @@ func (m *roaManager) HandleROAEvent(ev *roaEvent) {
 		client.state.Downtime = time.Now().Unix()
 		// clear state
 		client.endOfData = false
-		client.pendingROAs = make([]*table.ROA, 0)
+		client.pendingROAs = nil
 		client.state.RpkiMessages = oc.RpkiMessages{}
 		client.conn = nil
 		go client.tryConnect()
@@ -206,6 +222,7 @@ func (m *roaManager) HandleROAEvent(ev *roaEvent) {
 				slog.String("Key", client.host),
 			)
 			m.table.DeleteAll(client.host)
+			m.notifyChange()
 		}
 	}
 }
@@ -252,14 +269,12 @@ func (m *roaManager) handleRTRMsg(client *roaClient, state *oc.RpkiServerState, 
 				received.Ipv6Prefix++
 			}
 			roa := table.NewROA(family, msg.Prefix.AsSlice(), msg.PrefixLen, msg.MaxLen, msg.AS, client.host)
-			if msg.Flags&1 == 1 {
-				if client.endOfData {
-					m.table.Add(roa)
-				} else {
-					client.pendingROAs = append(client.pendingROAs, roa)
-				}
+			update := roaUpdate{roa: roa, withdraw: msg.Flags&1 == 0}
+			if client.endOfData {
+				m.applyROAUpdate(update)
+				m.notifyChange()
 			} else {
-				m.table.Delete(roa)
+				client.pendingROAs = append(client.pendingROAs, update)
 			}
 		case *rtr.RTREndOfData:
 			received.EndOfData++
@@ -278,9 +293,10 @@ func (m *roaManager) handleRTRMsg(client *roaClient, state *oc.RpkiServerState, 
 				client.timer = nil
 			}
 			for _, roa := range client.pendingROAs {
-				m.table.Add(roa)
+				m.applyROAUpdate(roa)
 			}
-			client.pendingROAs = make([]*table.ROA, 0)
+			client.pendingROAs = nil
+			m.notifyChange()
 		case *rtr.RTRCacheReset:
 			if err := client.softReset(); err != nil {
 				m.logger.Error("Failed to send soft reset",
@@ -298,6 +314,19 @@ func (m *roaManager) handleRTRMsg(client *roaClient, state *oc.RpkiServerState, 
 			slog.String("Host", client.host),
 			slog.String("Error", err.Error()),
 		)
+	}
+}
+
+type roaUpdate struct {
+	roa      *table.ROA
+	withdraw bool
+}
+
+func (m *roaManager) applyROAUpdate(update roaUpdate) {
+	if update.withdraw {
+		m.table.Delete(update.roa)
+	} else {
+		m.table.Add(update.roa)
 	}
 }
 
@@ -352,7 +381,7 @@ type roaClient struct {
 	lifetime     int64
 	endOfData    bool
 	resetQuery   bool // waiting for the End of Data answering a Reset Query
-	pendingROAs  []*table.ROA
+	pendingROAs  []roaUpdate
 	cancelfnc    context.CancelFunc
 	ctx          context.Context
 }
@@ -363,7 +392,7 @@ func newRoaClient(address, port string, ch chan *roaEvent, lifetime int64) *roaC
 		host:        net.JoinHostPort(address, port),
 		eventCh:     ch,
 		lifetime:    lifetime,
-		pendingROAs: make([]*table.ROA, 0),
+		pendingROAs: nil,
 		ctx:         ctx,
 		cancelfnc:   cancel,
 	}
@@ -395,7 +424,7 @@ func (c *roaClient) softReset() error {
 		c.state.RpkiMessages.RpkiSent.ResetQuery++
 		c.endOfData = false
 		c.resetQuery = true
-		c.pendingROAs = make([]*table.ROA, 0)
+		c.pendingROAs = nil
 	}
 	return nil
 }

@@ -410,7 +410,6 @@ func TestNewIPRouteBodyWithdrawsInvalidNexthopPath(t *testing.T) {
 			Version:  zebra.MaxZapiVer,
 			Software: zebra.NewSoftware(zebra.MaxZapiVer, "frr8.2"),
 		},
-		pathVrfMap: make(map[*table.Path]uint32),
 	}
 
 	body, isWithdraw := newIPRouteBody([]*table.Path{path}, zebra.DefaultVrf, z)

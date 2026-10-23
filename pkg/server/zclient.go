@@ -16,7 +16,6 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"math"
@@ -28,7 +27,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osrg/gobgp/v4/api"
 	"github.com/osrg/gobgp/v4/internal/pkg/table"
 	"github.com/osrg/gobgp/v4/pkg/config/oc"
 	"github.com/osrg/gobgp/v4/pkg/packet/bgp"
@@ -51,9 +49,8 @@ func (m nexthopStateCache) applyToNewPathList(paths []*table.Path) {
 		if !ok {
 			continue
 		}
-		if metric == math.MaxUint32 {
-			path.IsNexthopInvalid = true
-		} else {
+		path.IsNexthopInvalid = metric == math.MaxUint32
+		if metric != math.MaxUint32 {
 			_ = path.SetMed(int64(metric), true)
 		}
 	}
@@ -174,7 +171,6 @@ func newIPRouteBody(dst []*table.Path, vrfID uint32, z *zebraClient) (body *zebr
 
 	l := strings.SplitN(path.GetPrefix(), "/", 2)
 	var prefix netip.Addr
-	var nexthop zebra.Nexthop
 	nexthops := make([]zebra.Nexthop, 0, len(paths))
 	msgFlags := zebra.MessageNexthop
 	switch path.GetFamily() {
@@ -185,22 +181,8 @@ func newIPRouteBody(dst []*table.Path, vrfID uint32, z *zebraClient) (body *zebr
 	default:
 		return nil, false
 	}
-	nhVrfID := uint32(zebra.DefaultVrf)
-	func() {
-		z.pathVrfMu.RLock()
-		defer z.pathVrfMu.RUnlock()
-		for vrfPath, pathVrfID := range z.pathVrfMap {
-			if path.Equal(vrfPath) {
-				nhVrfID = pathVrfID
-				break
-			} else {
-				continue
-			}
-		}
-	}()
 	for _, p := range paths {
-		nexthop.Gate = p.GetNexthop()
-		nexthop.VrfID = nhVrfID
+		nexthop := zebra.Nexthop{Gate: p.GetNexthop(), VrfID: p.NexthopVrfID()}
 		// link-local next-hop requires an interface index for kernel route installation
 		nexthop.Ifindex = 0
 		if nexthop.Gate.Is6() && nexthop.Gate.IsLinkLocalUnicast() {
@@ -212,8 +194,8 @@ func newIPRouteBody(dst []*table.Path, vrfID uint32, z *zebraClient) (body *zebr
 				}
 			}
 		}
-		if nhVrfID != vrfID {
-			addLabelToNexthop(path, z, &msgFlags, &nexthop)
+		if nexthop.VrfID != vrfID {
+			addLabelToNexthop(p, z, &msgFlags, &nexthop)
 		}
 		nexthops = append(nexthops, nexthop)
 	}
@@ -357,12 +339,45 @@ type mplsLabelParameter struct {
 type zebraClient struct {
 	client       *zebra.Client
 	server       *BgpServer
-	nexthopCache nexthopStateCache
+	nexthopCache map[uint32]nexthopStateCache
 	cacheLock    sync.Mutex
-	pathVrfMap   map[*table.Path]uint32 // vpn paths and nexthop vpn id
-	pathVrfMu    sync.RWMutex
 	mplsLabel    mplsLabelParameter
 	dead         chan struct{}
+}
+
+// The caller holds cacheLock. VRF zero is the global resolution table.
+func (z *zebraClient) cache(vrfID uint32) nexthopStateCache {
+	if z.nexthopCache == nil {
+		z.nexthopCache = make(map[uint32]nexthopStateCache)
+	}
+	if z.nexthopCache[vrfID] == nil {
+		z.nexthopCache[vrfID] = make(nexthopStateCache)
+	}
+	return z.nexthopCache[vrfID]
+}
+
+func pathsByNexthopVRF(paths []*table.Path) map[uint32][]*table.Path {
+	groups := make(map[uint32][]*table.Path)
+	for _, path := range paths {
+		if path != nil {
+			id := path.NexthopVrfID()
+			groups[id] = append(groups[id], path)
+		}
+	}
+	return groups
+}
+
+func (z *zebraClient) registerNexthops(paths []*table.Path) {
+	for vrfID, group := range pathsByNexthopVRF(paths) {
+		z.cacheLock.Lock()
+		body := newNexthopRegisterBody(group, z.cache(vrfID))
+		z.cacheLock.Unlock()
+		if body != nil {
+			if err := z.client.SendNexthopRegister(vrfID, body, false); err != nil {
+				z.server.logger.Error("failed to send nexthop register", slog.String("Topic", "Zebra"), slog.String("Error", err.Error()))
+			}
+		}
+	}
 }
 
 // globalRibOptions returns the route selection options of the global RIB. A
@@ -377,7 +392,7 @@ func (z *zebraClient) globalRibOptions() (oc.RouteSelectionOptionsConfig, oc.Use
 	return z.server.globalRib.SelectionOptions(), z.server.globalRib.MultiplePathsOptions()
 }
 
-func (z *zebraClient) getPathListWithNexthopUpdate(body *zebra.NexthopUpdateBody) []*table.Path {
+func (z *zebraClient) getPathListWithNexthopUpdate(vrfID uint32, body *zebra.NexthopUpdateBody) []*table.Path {
 	selectionOptions, multiplePathsOptions := z.globalRibOptions()
 	rib := table.NewTableManager(z.server.logger, nil, selectionOptions, multiplePathsOptions)
 
@@ -402,12 +417,23 @@ func (z *zebraClient) getPathListWithNexthopUpdate(body *zebra.NexthopUpdateBody
 		rib.SetTable(rf, tbl)
 	}
 
-	return rib.GetPathListWithNexthop(table.GLOBAL_RIB_NAME, rfList, body.Prefix.Prefix)
+	paths := rib.GetPathListWithNexthop(table.GLOBAL_RIB_NAME, rfList, body.Prefix.Prefix)
+	scoped := make([]*table.Path, 0, len(paths))
+	for _, path := range paths {
+		if path.NexthopVrfID() == vrfID {
+			scoped = append(scoped, path)
+		}
+	}
+	return scoped
 }
 
 func (z *zebraClient) updatePathByNexthopCache(paths []*table.Path) {
 	z.cacheLock.Lock()
-	paths = z.nexthopCache.applyToPathList(paths)
+	updated := make([]*table.Path, 0, len(paths))
+	for vrfID, group := range pathsByNexthopVRF(paths) {
+		updated = append(updated, z.cache(vrfID).applyToPathList(group)...)
+	}
+	paths = updated
 	z.cacheLock.Unlock()
 	if len(paths) > 0 {
 		if err := z.server.updatePath("", paths); err != nil {
@@ -418,6 +444,32 @@ func (z *zebraClient) updatePathByNexthopCache(paths []*table.Path) {
 			)
 		}
 	}
+}
+
+func (z *zebraClient) handleNexthopUpdate(vrfID uint32, body *zebra.NexthopUpdateBody) {
+	z.cacheLock.Lock()
+	updated := z.cache(vrfID).updateByNexthopUpdate(body)
+	z.cacheLock.Unlock()
+	if !updated {
+		return
+	}
+	paths := z.getPathListWithNexthopUpdate(vrfID, body)
+	if len(paths) == 0 {
+		// If there is no path bound for the given nexthop, send
+		// NEXTHOP_UNREGISTER message.
+		z.cacheLock.Lock()
+		delete(z.cache(vrfID), body.Prefix.Prefix)
+		z.cacheLock.Unlock()
+		err := z.client.SendNexthopRegister(vrfID, newNexthopUnregisterBody(uint16(body.Prefix.Family), body.Prefix.Prefix), true)
+		if err != nil {
+			z.server.logger.Error("failed to send nexthop unregister",
+				slog.String("Topic", "Zebra"),
+				slog.String("Error", err.Error()),
+			)
+		}
+		return
+	}
+	z.updatePathByNexthopCache(paths)
 }
 
 func (z *zebraClient) loop() {
@@ -454,29 +506,7 @@ func (z *zebraClient) loop() {
 					}
 				}
 			case *zebra.NexthopUpdateBody:
-				z.cacheLock.Lock()
-				updated := z.nexthopCache.updateByNexthopUpdate(body)
-				z.cacheLock.Unlock()
-				if !updated {
-					continue
-				}
-				paths := z.getPathListWithNexthopUpdate(body)
-				if len(paths) == 0 {
-					// If there is no path bound for the given nexthop, send
-					// NEXTHOP_UNREGISTER message.
-					z.cacheLock.Lock()
-					delete(z.nexthopCache, body.Prefix.Prefix)
-					z.cacheLock.Unlock()
-					err := z.client.SendNexthopRegister(msg.Header.VrfID, newNexthopUnregisterBody(uint16(body.Prefix.Family), body.Prefix.Prefix), true)
-					if err != nil {
-						z.server.logger.Error("failed to send nexthop unregister",
-							slog.String("Topic", "Zebra"),
-							slog.String("Error", err.Error()),
-						)
-					}
-					continue
-				}
-				z.updatePathByNexthopCache(paths)
+				z.handleNexthopUpdate(msg.Header.VrfID, body)
 			case *zebra.GetLabelChunkBody:
 				z.server.logger.Debug("zebra GetLabelChunkBody is received",
 					slog.String("Topic", "Zebra"),
@@ -499,89 +529,26 @@ func (z *zebraClient) loop() {
 			switch msg := ev.(type) {
 			case *watchEventBestPath:
 				_, multiplePathsOptions := z.globalRibOptions()
-				if multiplePathsOptions.Enabled {
-					for _, paths := range msg.MultiPathList {
-						z.updatePathByNexthopCache(paths)
-						for i := range msg.Vrf {
-							if body, isWithdraw := newIPRouteBody(paths, i, z); body != nil {
-								err := z.client.SendIPRoute(i, body, isWithdraw)
-								if err != nil {
-									z.server.logger.Error("failed to send ip route",
-										slog.String("Topic", "Zebra"),
-										slog.String("Error", err.Error()),
-									)
-									continue
-								}
-							}
-							z.cacheLock.Lock()
-							body := newNexthopRegisterBody(paths, z.nexthopCache)
-							z.cacheLock.Unlock()
-							if body != nil {
-								err := z.client.SendNexthopRegister(i, body, false)
-								if err != nil {
-									z.server.logger.Error("failed to send nexthop register",
-										slog.String("Topic", "Zebra"),
-										slog.String("Error", err.Error()),
-									)
-									continue
-								}
-							}
-						}
-					}
-				} else {
-					z.updatePathByNexthopCache(msg.PathList)
+				groups := msg.MultiPathList
+				if !multiplePathsOptions.Enabled {
+					groups = make([][]*table.Path, 0, len(msg.PathList))
 					for _, path := range msg.PathList {
-						for i := range msg.Vrf {
-							if body, isWithdraw := newIPRouteBody([]*table.Path{path}, i, z); body != nil {
-								err := z.client.SendIPRoute(i, body, isWithdraw)
-								if err != nil {
-									z.server.logger.Error("failed to send ip route",
-										slog.String("Topic", "Zebra"),
-										slog.String("Error", err.Error()),
-									)
-									continue
-								}
-							}
-							z.cacheLock.Lock()
-							body := newNexthopRegisterBody([]*table.Path{path}, z.nexthopCache)
-							z.cacheLock.Unlock()
-							if body != nil {
-								err := z.client.SendNexthopRegister(i, body, false)
-								if err != nil {
-									z.server.logger.Error("failed to send nexthop register",
-										slog.String("Topic", "Zebra"),
-										slog.String("Error", err.Error()),
-									)
-									continue
-								}
+						groups = append(groups, []*table.Path{path})
+					}
+				}
+				for _, paths := range groups {
+					z.updatePathByNexthopCache(paths)
+					for vrfID := range msg.Vrf {
+						if body, isWithdraw := newIPRouteBody(paths, vrfID, z); body != nil {
+							if err := z.client.SendIPRoute(vrfID, body, isWithdraw); err != nil {
+								z.server.logger.Error("failed to send ip route", slog.String("Topic", "Zebra"), slog.String("Error", err.Error()))
 							}
 						}
 					}
+					z.registerNexthops(paths)
 				}
 			case *watchEventUpdate:
-				z.cacheLock.Lock()
-				body := newNexthopRegisterBody(msg.PathList, z.nexthopCache)
-				z.cacheLock.Unlock()
-				if body != nil {
-					vrfID := uint32(0)
-					err := z.server.ListVrf(context.Background(), &api.ListVrfRequest{Name: msg.Neighbor.Config.Vrf}, func(v *api.Vrf) {
-						vrfID = v.Id
-					})
-					if err != nil {
-						z.server.logger.Error("failed to get vrf id",
-							slog.String("Topic", "Zebra"),
-							slog.String("Error", err.Error()),
-						)
-					}
-					err = z.client.SendNexthopRegister(vrfID, body, false)
-					if err != nil {
-						z.server.logger.Error("failed to send nexthop register",
-							slog.String("Topic", "Zebra"),
-							slog.String("Error", err.Error()),
-						)
-						continue
-					}
-				}
+				z.registerNexthops(msg.PathList)
 			}
 		}
 	}
@@ -643,8 +610,7 @@ func newZebraClient(s *BgpServer, url string, protos []string, version uint8, nh
 	w := &zebraClient{
 		client:       cli,
 		server:       s,
-		nexthopCache: make(nexthopStateCache),
-		pathVrfMap:   make(map[*table.Path]uint32),
+		nexthopCache: make(map[uint32]nexthopStateCache),
 		mplsLabel: mplsLabelParameter{
 			rangeSize: mplsLabelRangeSize,
 			maps:      make(map[uint64]*table.Bitmap),

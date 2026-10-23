@@ -197,3 +197,22 @@ Target Prefix: 2.1.0.0/16, AS: 65001
 
 From this, we can notice that 2.1.0.0/16 (Origin AS: 65001) is invalid due to its origin AS,
 the origin AS should be 3215.
+
+### Automatic policy revalidation in n-gobgp
+
+A committed change to the VRP table automatically replays retained IPv4 and
+IPv6 unicast BGP input routes through import policies and re-evaluates export
+policies. An invalid origin is rejected only when a configured policy requests
+it. Routes rejected by the previous VRPs can become eligible again without a
+BGP session reset. This includes cache removal, disable, soft reset and expiry.
+
+RTR announcements and withdrawals received in a Cache Response are applied in
+arrival order at End of Data. Disconnecting before End of Data discards that
+incomplete batch. Duplicate announcements do not trigger another evaluation.
+
+The initial implementation scans both unicast families after a changed batch;
+large tables can therefore increase control-plane work during VRP updates.
+It does not add origin validation for VPN families or retain rejected local
+API injections for import-policy recovery. BGP input recovery uses Adj-RIB-In.
+Regression coverage and the tracked scope are in
+[issue #4](https://github.com/nishisan-dev/n-gobgp/issues/4).
