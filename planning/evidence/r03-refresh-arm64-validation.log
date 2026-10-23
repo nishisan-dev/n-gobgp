@@ -1,0 +1,128 @@
+EARLIER ATTEMPTS AND FOLLOW-UP
+Attempt 1: ARM64 full suite failed in the initial advertisement of the previous RPKI regression (export/disable, rpki_revalidation_test.go:178), before any RPKI mutation. Investigation found a reproducible initial-replay/state-publication gap; a deterministic regression was added and the production state ordering corrected (issue #11). A direct attribution of every internal detail of that first failure is not claimed.
+Attempt 2: ARM64 full race suite passed; the GR reconnect fixture failed because its TCP connection was accepted while the peer remained Idle and was closed before OPEN completed. The fixture now retries an EOF during the handshake, like an active peer, while still rejecting NOTIFICATION errors.
+
+Attempt 3: the current full ARM64 race suite and 1000 repetitions passed; the older VRF TCP fixture had the same EOF-in-Idle handshake failure. The shared connect helper now retries the full handshake on EOF/OSError and fails on NOTIFICATION. Final protocol validation below runs all nine scenarios three times.
+
+DETERMINISTIC RED TESTS BEFORE CORRECTION
+2026/10/23 12:02:42 WARN exceeding max routes for prefix Topic=Peer Key=192.0.2.20 Prefix=203.0.113.0/24
+--- FAIL: TestRefreshRespectsAddPathSendMax (0.00s)
+    --- FAIL: TestRefreshRespectsAddPathSendMax/1 (0.00s)
+        refresh_regression_test.go:100:
+                Error Trace:    /home/lucas/Projects/nishisan/n-gobgp/pkg/server/refresh_regression_test.go:100
+                Error:          "[{ 203.0.113.0/24 | src: local, nh: 1.1.1.1 } { 203.0.113.0/24 | src: local, nh: 1.1.1.1 }]" should have 1 item(s), but has 2
+                Test:           TestRefreshRespectsAddPathSendMax/1
+                Messages:       refresh must use the same outbound ceiling as live updates
+--- FAIL: TestEnhancedRefreshRemovesOnlyOmittedPaths (0.00s)
+    refresh_regression_test.go:127:
+            Error Trace:    /home/lucas/Projects/nishisan/n-gobgp/pkg/server/refresh_regression_test.go:127
+            Error:          "[{ 203.0.113.0/24 | src: { 192.0.2.10 | as: 65010, id: 192.0.2.10 }, nh: 192.0.2.1 } { 203.0.113.0/24 | src: { 192.0.2.10 | as: 65010, id: 192.0.2.10 }, nh: 192.0.2.1 }]" should have 1 item(s), but has 2
+            Test:           TestEnhancedRefreshRemovesOnlyOmittedPaths
+            Messages:       EoRR must remove the omitted path ID
+--- FAIL: TestGREORRemovesStalePathsPerFamily (0.00s)
+    refresh_regression_test.go:150:
+            Error Trace:    /home/lucas/Projects/nishisan/n-gobgp/pkg/server/refresh_regression_test.go:150
+            Error:          Should be zero, but was 1
+            Test:           TestGREORRemovesStalePathsPerFamily
+            Messages:       IPv4 EOR must clean IPv4 without waiting for IPv6
+FAIL
+FAIL    github.com/osrg/gobgp/v4/pkg/server 0.013s
+FAIL
+
+2026/10/23 12:22:14 WARN exceeding max routes for prefix Topic=Peer Key=192.0.2.20 Prefix=203.0.113.0/24
+--- FAIL: TestRefreshRespectsAddPathSendMax (0.00s)
+    --- FAIL: TestRefreshRespectsAddPathSendMax/1 (0.00s)
+        refresh_regression_test.go:125:
+                Error Trace:    /home/lucas/Projects/nishisan/n-gobgp/pkg/server/refresh_regression_test.go:125
+                Error:          Not equal:
+                                expected: 2
+                                actual  : 1
+                Test:           TestRefreshRespectsAddPathSendMax/1
+                Messages:       Adj-RIB-Out inspection must preserve distinct local ADD-PATH IDs
+    --- FAIL: TestRefreshRespectsAddPathSendMax/2 (0.00s)
+        refresh_regression_test.go:125:
+                Error Trace:    /home/lucas/Projects/nishisan/n-gobgp/pkg/server/refresh_regression_test.go:125
+                Error:          Not equal:
+                                expected: 2
+                                actual  : 1
+                Test:           TestRefreshRespectsAddPathSendMax/2
+                Messages:       Adj-RIB-Out inspection must preserve distinct local ADD-PATH IDs
+FAIL
+FAIL    github.com/osrg/gobgp/v4/pkg/server 0.012s
+FAIL
+
+--- FAIL: TestEstablishedPeerAcceptsLiveUpdateAfterInitialReplay (3.00s)
+    refresh_regression_test.go:438: missing refresh output
+FAIL
+FAIL    github.com/osrg/gobgp/v4/pkg/server 3.011s
+FAIL
+
+CURRENT ARM64 BASELINE REPRODUCTION, FULL RACE SUITE, 1000 REPETITIONS AND PROTOCOL FIXTURES
+go version go1.27.3 linux/arm64
+    assert out.count(prefix) == limit, 'refresh exceeded ADD-PATH send-max'
+AssertionError: refresh exceeded ADD-PATH send-max
+Confirmed baseline regression: addpath
+    wait_for(lambda: out.count(V4) == 1, 'EoRR retained an omitted Path-ID')
+AssertionError: EoRR retained an omitted Path-ID
+Confirmed baseline regression: enhanced
+    wait_for(lambda: out.count(V4) == 0, 'IPv4 EOR waited for another family')
+AssertionError: IPv4 EOR waited for another family
+Confirmed baseline regression: eor
+?       github.com/osrg/gobgp/v4/api    [no test files]
+ok      github.com/osrg/gobgp/v4/cmd/gobgp  (cached)
+?       github.com/osrg/gobgp/v4/cmd/gobgpd [no test files]
+ok      github.com/osrg/gobgp/v4/internal/pkg/netutils  (cached)
+ok      github.com/osrg/gobgp/v4/internal/pkg/table (cached)
+ok      github.com/osrg/gobgp/v4/internal/pkg/version   (cached)
+ok      github.com/osrg/gobgp/v4/pkg/apiutil    (cached)
+ok      github.com/osrg/gobgp/v4/pkg/config 1.115s
+?       github.com/osrg/gobgp/v4/pkg/config/kafka   [no test files]
+ok      github.com/osrg/gobgp/v4/pkg/config/oc  (cached)
+ok      github.com/osrg/gobgp/v4/pkg/event  (cached)
+ok      github.com/osrg/gobgp/v4/pkg/metrics    4.156s
+ok      github.com/osrg/gobgp/v4/pkg/packet/bfd (cached)
+ok      github.com/osrg/gobgp/v4/pkg/packet/bgp 1.191s
+ok      github.com/osrg/gobgp/v4/pkg/packet/bmp (cached)
+ok      github.com/osrg/gobgp/v4/pkg/packet/mrt (cached)
+ok      github.com/osrg/gobgp/v4/pkg/packet/rtr (cached)
+ok      github.com/osrg/gobgp/v4/pkg/server 169.077s
+ok      github.com/osrg/gobgp/v4/pkg/sink/kafka 5.470s
+ok      github.com/osrg/gobgp/v4/pkg/zebra  (cached)
+?       github.com/osrg/gobgp/v4/tools/config   [no test files]
+?       github.com/osrg/gobgp/v4/tools/mrt-updates  [no test files]
+ok      github.com/osrg/gobgp/v4/pkg/server 51.473s
+
+FINAL FOCUSED ARM64 CHECK AFTER COMMENT CLARIFICATION AND NIL-GUARD
+ok      github.com/osrg/gobgp/v4/pkg/server 2.286s
+
+FINAL PROTOCOL FIXTURES (three iterations, final source)
+Protocol-iteration-1
+{"case": "refresh-addpath", "send-max": 1, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 1, "enhanced": false, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": false, "result": "PASS"}
+{"case": "enhanced-refresh", "result": "PASS"}
+{"case": "gr-eor-family", "result": "PASS"}
+{"case": "rpki-import", "result": "PASS"}
+{"case": "rpki-export", "result": "PASS"}
+{"case": "vrf-nht", "result": "PASS"}
+Protocol-iteration-2
+{"case": "refresh-addpath", "send-max": 1, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 1, "enhanced": false, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": false, "result": "PASS"}
+{"case": "enhanced-refresh", "result": "PASS"}
+{"case": "gr-eor-family", "result": "PASS"}
+{"case": "rpki-import", "result": "PASS"}
+{"case": "rpki-export", "result": "PASS"}
+{"case": "vrf-nht", "result": "PASS"}
+Protocol-iteration-3
+{"case": "refresh-addpath", "send-max": 1, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 1, "enhanced": false, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": false, "result": "PASS"}
+{"case": "enhanced-refresh", "result": "PASS"}
+{"case": "gr-eor-family", "result": "PASS"}
+{"case": "rpki-import", "result": "PASS"}
+{"case": "rpki-export", "result": "PASS"}
+{"case": "vrf-nht", "result": "PASS"}

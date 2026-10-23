@@ -135,6 +135,10 @@ type peer struct {
 	rtmHandler *table.RouteTargetMembershipHandler
 	// Route refresh in progress, during an established session or route refresh, this need to be atomic to avoid out of order updates
 	routeRefreshInProgress sync.RWMutex
+	// Refresh membership is independent of GR/LLGR stale flags. Only actual
+	// inbound UPDATEs clear entries, never import-policy re-evaluation.
+	refreshPending map[bgp.Family]map[table.PathLocalKey]struct{}
+	sentEOR        sync.Map // families whose EOR has been queued in this session
 	// deferralCancel stops the deferral timer of the current session.
 	// Protected by fsm.lock.
 	deferralCancel context.CancelFunc
@@ -406,6 +410,7 @@ func (peer *peer) resetAdvertisedRoutes() {
 	peer.sentPaths.Clear()
 	peer.advertisedCount.Clear()
 	peer.sendMaxPathFiltered.Clear()
+	peer.sentEOR.Clear()
 }
 
 func (peer *peer) isDynamicNeighbor() bool {
@@ -891,6 +896,7 @@ func (peer *peer) handleUpdate(e *fsmMsg, localClusterIDs map[netip.Addr]struct{
 				eor = append(eor, family)
 				continue
 			}
+			delete(peer.refreshPending[path.GetFamily()], refreshInputKey(path))
 			if peer.detectsLoop(path, loopGlobals) {
 				path.SetRejected(true)
 				continue
@@ -940,4 +946,48 @@ func (peer *peer) DropAll(rfList []bgp.Family) []*table.Path {
 		}
 	}
 	return peer.adjRibIn.Drop(rfList)
+}
+
+// Input identity uses the remote Path-ID, not the locally allocated export ID.
+func refreshInputKey(path *table.Path) table.PathLocalKey {
+	return table.PathLocalKey{PathDestLocalKey: path.GetDestLocalKey(), Id: path.RemoteID()}
+}
+
+func (peer *peer) beginRefresh(family bgp.Family) {
+	if peer.refreshPending == nil {
+		peer.refreshPending = make(map[bgp.Family]map[table.PathLocalKey]struct{})
+	}
+	pending := make(map[table.PathLocalKey]struct{})
+	for _, path := range peer.adjRibIn.PathList([]bgp.Family{family}, false) {
+		pending[refreshInputKey(path)] = struct{}{}
+	}
+	peer.refreshPending[family] = pending
+}
+
+func (peer *peer) endRefresh(family bgp.Family) (removed, accepted []*table.Path) {
+	pending, ok := peer.refreshPending[family]
+	if !ok {
+		return nil, nil
+	}
+	delete(peer.refreshPending, family)
+	for _, path := range peer.adjRibIn.PathList([]bgp.Family{family}, false) {
+		if _, ok := pending[refreshInputKey(path)]; !ok {
+			continue
+		}
+		w := path.Clone(true)
+		w.SetDropped(true)
+		removed = append(removed, w)
+		if !path.IsRejected() {
+			accepted = append(accepted, w)
+		}
+	}
+	peer.adjRibIn.Update(removed)
+	return removed, accepted
+}
+
+func (peer *peer) supportsEnhancedRefresh() bool {
+	peer.fsm.lock.Lock()
+	defer peer.fsm.lock.Unlock()
+	_, ok := peer.fsm.capMap[bgp.BGP_CAP_ENHANCED_ROUTE_REFRESH]
+	return ok
 }

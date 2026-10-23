@@ -58,11 +58,31 @@ def decode_nlris(data):
     return result
 
 
+def connect_bgp(address, opening):
+    """Retry an EOF during Idle; never hide a BGP NOTIFICATION."""
+    conn = socket.socket()
+    conn.bind((address, 0))
+    conn.settimeout(2)
+    try:
+        conn.connect(('127.0.0.1', 1179))
+        conn.sendall(opening)
+        while True:
+            header = read_exact(conn, 19)
+            length, kind = struct.unpack('!HB', header[16:])
+            body = read_exact(conn, length-19)
+            if kind == 3:
+                conn.close()
+                raise AssertionError('handshake NOTIFICATION ' + body.hex())
+            if kind == 4:
+                return conn
+    except (OSError, EOFError):
+        conn.close()
+        return None
+
+
 class Peer:
     def __init__(self, address, asn):
         self.address = address
-        wait_for(self.connect, 'BGP listener did not start')
-        self.conn.settimeout(None)
         self.routes = set()
         self.error = None
         self.ready = threading.Event()
@@ -71,22 +91,20 @@ class Peer:
         # Four-octet AS capability deliberately omitted: send two-octet AS_PATH.
         caps = bytes.fromhex('0206010400010001')
         body = struct.pack('!BHH4sB', 4, asn, 90, socket.inet_aton(address), len(caps)) + caps
-        self.conn.sendall(bgp_frame(1, body) + bgp_frame(4))
+        self.opening = bgp_frame(1, body) + bgp_frame(4)
+        wait_for(self.connect, 'BGP handshake unavailable')
+        self.conn.settimeout(None)
+        self.ready.set()
         self.worker = threading.Thread(target=self.receive, daemon=True)
         self.worker.start()
         wait_for(self.ready.is_set, 'BGP handshake did not complete')
 
     def connect(self):
-        conn = socket.socket()
-        conn.bind((self.address, 0))
-        conn.settimeout(2)
-        try:
-            conn.connect(('127.0.0.1', 1179))
-            self.conn = conn
-            return True
-        except (ConnectionRefusedError, ConnectionAbortedError, TimeoutError):
-            conn.close()
+        conn = connect_bgp(self.address, self.opening)
+        if conn is None:
             return False
+        self.conn = conn
+        return True
 
     def receive(self):
         try:

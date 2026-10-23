@@ -195,7 +195,8 @@ type fsmMsg struct {
 }
 
 type fsmOutgoingMsg struct {
-	Paths []*table.Path
+	Paths         []*table.Path
+	RefreshFamily bgp.Family // nonzero wraps this replay in BoRR/EoRR
 }
 
 const (
@@ -1340,7 +1341,7 @@ func capAddPathFromConfig(pConf *oc.Neighbor) bgp.ParameterCapabilityInterface {
 func capabilitiesFromConfig(pConf *oc.Neighbor) []bgp.ParameterCapabilityInterface {
 	fqdn, _ := os.Hostname()
 	caps := make([]bgp.ParameterCapabilityInterface, 0, 4)
-	caps = append(caps, bgp.NewCapRouteRefresh())
+	caps = append(caps, bgp.NewCapRouteRefresh(), bgp.NewCapEnhancedRouteRefresh())
 	caps = append(caps, bgp.NewCapFQDN(fqdn, ""))
 
 	if pConf.Config.SendSoftwareVersion || pConf.Config.PeerType == oc.PEER_TYPE_INTERNAL {
@@ -1582,6 +1583,14 @@ func (h *fsmHandler) recvMessageWithError(conn net.Conn, stateReasonCh chan<- fs
 		Use2ByteAS:      h.fsm.twoByteAsTrans, // true if peer does NOT support 4-byte AS
 		ExtendedMessage: h.fsm.extendedMessage.Load(),
 	})
+	if hd.Type == bgp.BGP_MSG_ROUTE_REFRESH && len(bodyBuf) >= 3 && (bodyBuf[2] == 1 || bodyBuf[2] == 2) && len(bodyBuf) != 4 {
+		h.fsm.lock.Lock()
+		_, enhanced := h.fsm.capMap[bgp.BGP_CAP_ENHANCED_ROUTE_REFRESH]
+		h.fsm.lock.Unlock()
+		if enhanced {
+			err = bgp.NewMessageError(bgp.BGP_ERROR_ROUTE_REFRESH_MESSAGE_ERROR, bgp.BGP_ERROR_SUB_INVALID_MESSAGE_LENGTH, append(headerBuf, bodyBuf...), "Invalid refresh marker length")
+		}
+	}
 	if err != nil {
 		if m == nil {
 			handling = bgp.ERROR_HANDLING_SESSION_RESET
@@ -2077,7 +2086,7 @@ func (h *fsmHandler) sendMessageloop(ctx context.Context, conn net.Conn, stateRe
 				slog.Any("nlri", update.NLRI),
 				slog.Any("withdrawals", update.WithdrawnRoutes),
 				slog.Any("attributes", update.PathAttributes))
-		case bgp.BGP_MSG_KEEPALIVE:
+		case bgp.BGP_MSG_KEEPALIVE, bgp.BGP_MSG_ROUTE_REFRESH:
 			// nothing to do
 		default:
 			fsm.logger.Error("unexpected message sent",
@@ -2096,7 +2105,7 @@ func (h *fsmHandler) sendMessageloop(ctx context.Context, conn net.Conn, stateRe
 			switch m := o.(type) {
 			case *fsmOutgoingMsg:
 				const maxCoalesceMsgs = 2048 // safety cap
-				paths := m.Paths
+				batch := []fsmOutgoingMsg{*m}
 				coalescedMsgs := 1
 				// coalesce queued messages for more efficient UPDATE packing
 				for coalescedMsgs < maxCoalesceMsgs {
@@ -2108,7 +2117,12 @@ func (h *fsmHandler) sendMessageloop(ctx context.Context, conn net.Conn, stateRe
 					select {
 					case o2 := <-h.outgoing.Out():
 						if m2, ok := o2.(*fsmOutgoingMsg); ok {
-							paths = append(paths, m2.Paths...)
+							last := &batch[len(batch)-1]
+							if last.RefreshFamily == 0 && m2.RefreshFamily == 0 {
+								last.Paths = append(last.Paths, m2.Paths...)
+							} else {
+								batch = append(batch, *m2)
+							}
 							coalescedMsgs++
 							continue
 						}
@@ -2127,9 +2141,22 @@ func (h *fsmHandler) sendMessageloop(ctx context.Context, conn net.Conn, stateRe
 					AddPath:         fsm.familyMap.Load().(map[bgp.Family]bgp.BGPAddPathMode),
 					ExtendedMessage: fsm.extendedMessage.Load(),
 				}
-				for _, msg := range table.CreateUpdateMsgFromPaths(paths, options) {
-					if err := send(msg); err != nil {
-						return nil
+				for _, item := range batch {
+					f := item.RefreshFamily
+					if f != 0 {
+						if err := send(bgp.NewBGPRouteRefreshMessage(f.Afi(), 1, f.Safi())); err != nil {
+							return nil
+						}
+					}
+					for _, msg := range table.CreateUpdateMsgFromPaths(item.Paths, options) {
+						if err := send(msg); err != nil {
+							return nil
+						}
+					}
+					if f != 0 {
+						if err := send(bgp.NewBGPRouteRefreshMessage(f.Afi(), 2, f.Safi())); err != nil {
+							return nil
+						}
 					}
 				}
 			default:

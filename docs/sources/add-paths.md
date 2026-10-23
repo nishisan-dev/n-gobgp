@@ -167,3 +167,35 @@ r1> gobgp global rib -a ipv4
 *> 192.168.1.0/24       10.0.0.2             65002 65003          HH:mm:ss   [{Origin: ?}]
 *  192.168.1.0/24       10.0.0.2             65002 65004          HH:mm:ss   [{Origin: ?}]
 ```
+
+## Refresh behavior in n-gobgp
+
+The per-prefix `send-max` ceiling applies to normal updates, Route Refresh
+responses and outbound soft resets. A refresh retains eligible Path-IDs already
+advertised to the peer before filling available slots with other candidates.
+If a replay removes a path from the export set, its Path-ID is withdrawn.
+Withdrawing an advertised source can promote an eligible path previously
+blocked by the ceiling. Advertised counters and the Adj-RIB-Out API use this
+same bookkeeping. Adj-RIB-Out inspection preserves separate local Path-IDs,
+including candidates marked as blocked by `send-max`.
+
+n-gobgp advertises Enhanced Route Refresh capability 70. Responses to a peer
+that supports it contain BoRR, the selected replay and EoRR, including an empty
+replay. UPDATE packing preserves these boundaries. Legacy peers continue to
+receive ordinary refresh responses. See
+[issue #8](https://github.com/nishisan-dev/n-gobgp/issues/8).
+
+On receipt of BoRR, n-gobgp records the input paths for that peer and family,
+including remote ADD-PATH identifiers. Actual subsequent UPDATEs replace or
+withdraw those entries; local policy re-evaluation does not count as a peer
+refresh. EoRR removes any omitted entries and publishes their withdrawals to
+collection subscribers. Another peer or family is unaffected. EoRR without a
+matching BoRR, unknown subtypes and enhanced markers without the capability
+are ignored. Session teardown clears unfinished refresh tracking. See
+[issue #9](https://github.com/nishisan-dev/n-gobgp/issues/9).
+
+The transition to Established publishes the new peer identity and admits live
+propagation before taking the initial export snapshot. This prevents a route
+arriving just after that snapshot from being suppressed by the previous FSM
+state. The old session's outgoing queue is drained before admission is enabled.
+See [issue #11](https://github.com/nishisan-dev/n-gobgp/issues/11).

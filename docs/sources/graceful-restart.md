@@ -240,3 +240,23 @@ You can also use long lived graceful restart with normal graceful restart.
         enabled = true
         restart-time = 100000
 ```
+
+## EOR and Enhanced Route Refresh in n-gobgp
+
+During GR recovery, an EOR cleans stale input routes for its own address
+family immediately. Other families retain their recovery state until their
+EOR arrives. The peer remains in GR recovery while negotiated families are
+still incomplete. Collection observers receive generated withdrawals before
+the corresponding EOR completion event, including removals of rejected input
+entries present in an initial snapshot. See
+[issue #10](https://github.com/nishisan-dev/n-gobgp/issues/10).
+
+EOR and EoRR are separate boundaries. Enhanced Refresh tracks omitted routes
+independently of GR/LLGR stale flags. When the peer advertises GR capability,
+BoRR for a family is ignored until its initial EOR has arrived. Outbound BoRR
+also follows the initial EOR when GR is enabled. These rules follow
+[RFC 7313](https://www.rfc-editor.org/rfc/rfc7313.html).
+
+The R03 regression covers a real BGP TCP reconnect with IPv4 and IPv6, followed
+by independent EORs. It does not complete the broader roadmap review of all
+GR/LLGR timers, peer combinations and lifecycle transitions.
