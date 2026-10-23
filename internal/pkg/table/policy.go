@@ -3424,6 +3424,9 @@ func NewAsPathPrependAction(action oc.SetAsPathPrepend) (*AsPathPrependAction, e
 		if err != nil {
 			return nil, fmt.Errorf("AS number string invalid")
 		}
+		if asn == 0 {
+			return nil, fmt.Errorf("AS 0 cannot be prepended")
+		}
 		a.asn = uint32(asn)
 	}
 	return a, nil

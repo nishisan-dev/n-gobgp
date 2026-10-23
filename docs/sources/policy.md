@@ -717,7 +717,7 @@ evaluate routes from neighbors, if matched, action will be applied.
 
   | Element  | Description                                                                                            | Example |
   | -------- | ------------------------------------------------------------------------------------------------------ | ------- |
-  | as       | AS number to prepend. You can use "last-as" to prepend the leftmost AS number in the aspath attribute. | "65100" |
+  | as       | Nonzero AS number to prepend. You can use "last-as" to prepend the leftmost AS number in the aspath attribute. AS 0 is rejected (RFC 7607). | "65100" |
   | repeat-n | repeat count to prepend AS                                                                             | 5       |
 
 #### Execution condition of Action

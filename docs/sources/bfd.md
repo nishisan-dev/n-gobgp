@@ -40,6 +40,8 @@ Supported behavior:
   Poll;
 - hard BGP peer reset when the BFD session expires or the remote peer signals
   `DOWN`;
+- a remote `ADMIN_DOWN` brings BFD down without resetting BGP; BGP continues
+  to use its own hold timer (RFC 5882 Sections 3.2 and 4.2);
 - BFD configuration through the GoBGP config file and gRPC API;
 - BFD state in peer state returned by the API.
 
