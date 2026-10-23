@@ -193,7 +193,7 @@ def addpath_case(binary, limit, enhanced=True):
                     if enhanced:
                         wait_for(lambda: out.refresh_ends() > ends, 'enhanced refresh response lacks EoRR')
                     else:
-                        assert out.refresh_ends() == 0, 'legacy peer received enhanced markers' 
+                        assert out.refresh_ends() == 0, 'legacy peer received enhanced markers'
             for prefix in (V4, V6):
                 b.announce(prefix, withdraw=True)
                 wait_for(lambda: out.count(prefix) == 1, 'fallback withdrawal left stale Path-ID')
