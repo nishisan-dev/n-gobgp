@@ -40,65 +40,66 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	GoBgpService_StartBgp_FullMethodName               = "/api.GoBgpService/StartBgp"
-	GoBgpService_StopBgp_FullMethodName                = "/api.GoBgpService/StopBgp"
-	GoBgpService_GetBgp_FullMethodName                 = "/api.GoBgpService/GetBgp"
-	GoBgpService_WatchEvent_FullMethodName             = "/api.GoBgpService/WatchEvent"
-	GoBgpService_AddPeer_FullMethodName                = "/api.GoBgpService/AddPeer"
-	GoBgpService_DeletePeer_FullMethodName             = "/api.GoBgpService/DeletePeer"
-	GoBgpService_ListPeer_FullMethodName               = "/api.GoBgpService/ListPeer"
-	GoBgpService_UpdatePeer_FullMethodName             = "/api.GoBgpService/UpdatePeer"
-	GoBgpService_ResetPeer_FullMethodName              = "/api.GoBgpService/ResetPeer"
-	GoBgpService_ShutdownPeer_FullMethodName           = "/api.GoBgpService/ShutdownPeer"
-	GoBgpService_EnablePeer_FullMethodName             = "/api.GoBgpService/EnablePeer"
-	GoBgpService_DisablePeer_FullMethodName            = "/api.GoBgpService/DisablePeer"
-	GoBgpService_AddPeerGroup_FullMethodName           = "/api.GoBgpService/AddPeerGroup"
-	GoBgpService_DeletePeerGroup_FullMethodName        = "/api.GoBgpService/DeletePeerGroup"
-	GoBgpService_ListPeerGroup_FullMethodName          = "/api.GoBgpService/ListPeerGroup"
-	GoBgpService_UpdatePeerGroup_FullMethodName        = "/api.GoBgpService/UpdatePeerGroup"
-	GoBgpService_AddDynamicNeighbor_FullMethodName     = "/api.GoBgpService/AddDynamicNeighbor"
-	GoBgpService_ListDynamicNeighbor_FullMethodName    = "/api.GoBgpService/ListDynamicNeighbor"
-	GoBgpService_DeleteDynamicNeighbor_FullMethodName  = "/api.GoBgpService/DeleteDynamicNeighbor"
-	GoBgpService_AddPath_FullMethodName                = "/api.GoBgpService/AddPath"
-	GoBgpService_DeletePath_FullMethodName             = "/api.GoBgpService/DeletePath"
-	GoBgpService_ListPath_FullMethodName               = "/api.GoBgpService/ListPath"
-	GoBgpService_AddPathStream_FullMethodName          = "/api.GoBgpService/AddPathStream"
-	GoBgpService_GetTable_FullMethodName               = "/api.GoBgpService/GetTable"
-	GoBgpService_AddVrf_FullMethodName                 = "/api.GoBgpService/AddVrf"
-	GoBgpService_DeleteVrf_FullMethodName              = "/api.GoBgpService/DeleteVrf"
-	GoBgpService_ListVrf_FullMethodName                = "/api.GoBgpService/ListVrf"
-	GoBgpService_AddPolicy_FullMethodName              = "/api.GoBgpService/AddPolicy"
-	GoBgpService_DeletePolicy_FullMethodName           = "/api.GoBgpService/DeletePolicy"
-	GoBgpService_ListPolicy_FullMethodName             = "/api.GoBgpService/ListPolicy"
-	GoBgpService_SetPolicies_FullMethodName            = "/api.GoBgpService/SetPolicies"
-	GoBgpService_AddDefinedSet_FullMethodName          = "/api.GoBgpService/AddDefinedSet"
-	GoBgpService_DeleteDefinedSet_FullMethodName       = "/api.GoBgpService/DeleteDefinedSet"
-	GoBgpService_ListDefinedSet_FullMethodName         = "/api.GoBgpService/ListDefinedSet"
-	GoBgpService_AddStatement_FullMethodName           = "/api.GoBgpService/AddStatement"
-	GoBgpService_DeleteStatement_FullMethodName        = "/api.GoBgpService/DeleteStatement"
-	GoBgpService_ListStatement_FullMethodName          = "/api.GoBgpService/ListStatement"
-	GoBgpService_AddPolicyAssignment_FullMethodName    = "/api.GoBgpService/AddPolicyAssignment"
-	GoBgpService_DeletePolicyAssignment_FullMethodName = "/api.GoBgpService/DeletePolicyAssignment"
-	GoBgpService_ListPolicyAssignment_FullMethodName   = "/api.GoBgpService/ListPolicyAssignment"
-	GoBgpService_SetPolicyAssignment_FullMethodName    = "/api.GoBgpService/SetPolicyAssignment"
-	GoBgpService_AddRpki_FullMethodName                = "/api.GoBgpService/AddRpki"
-	GoBgpService_DeleteRpki_FullMethodName             = "/api.GoBgpService/DeleteRpki"
-	GoBgpService_ListRpki_FullMethodName               = "/api.GoBgpService/ListRpki"
-	GoBgpService_EnableRpki_FullMethodName             = "/api.GoBgpService/EnableRpki"
-	GoBgpService_DisableRpki_FullMethodName            = "/api.GoBgpService/DisableRpki"
-	GoBgpService_ResetRpki_FullMethodName              = "/api.GoBgpService/ResetRpki"
-	GoBgpService_ListRpkiTable_FullMethodName          = "/api.GoBgpService/ListRpkiTable"
-	GoBgpService_EnableZebra_FullMethodName            = "/api.GoBgpService/EnableZebra"
-	GoBgpService_EnableMrt_FullMethodName              = "/api.GoBgpService/EnableMrt"
-	GoBgpService_DisableMrt_FullMethodName             = "/api.GoBgpService/DisableMrt"
-	GoBgpService_AddBmp_FullMethodName                 = "/api.GoBgpService/AddBmp"
-	GoBgpService_DeleteBmp_FullMethodName              = "/api.GoBgpService/DeleteBmp"
-	GoBgpService_ListBmp_FullMethodName                = "/api.GoBgpService/ListBmp"
-	GoBgpService_SetLogLevel_FullMethodName            = "/api.GoBgpService/SetLogLevel"
-	GoBgpService_AddTcpAoKeychain_FullMethodName       = "/api.GoBgpService/AddTcpAoKeychain"
-	GoBgpService_UpdateTcpAoKeychain_FullMethodName    = "/api.GoBgpService/UpdateTcpAoKeychain"
-	GoBgpService_DeleteTcpAoKeychain_FullMethodName    = "/api.GoBgpService/DeleteTcpAoKeychain"
-	GoBgpService_ListTcpAoKeychain_FullMethodName      = "/api.GoBgpService/ListTcpAoKeychain"
+	GoBgpService_StartBgp_FullMethodName                     = "/api.GoBgpService/StartBgp"
+	GoBgpService_CompleteInitialConfiguration_FullMethodName = "/api.GoBgpService/CompleteInitialConfiguration"
+	GoBgpService_StopBgp_FullMethodName                      = "/api.GoBgpService/StopBgp"
+	GoBgpService_GetBgp_FullMethodName                       = "/api.GoBgpService/GetBgp"
+	GoBgpService_WatchEvent_FullMethodName                   = "/api.GoBgpService/WatchEvent"
+	GoBgpService_AddPeer_FullMethodName                      = "/api.GoBgpService/AddPeer"
+	GoBgpService_DeletePeer_FullMethodName                   = "/api.GoBgpService/DeletePeer"
+	GoBgpService_ListPeer_FullMethodName                     = "/api.GoBgpService/ListPeer"
+	GoBgpService_UpdatePeer_FullMethodName                   = "/api.GoBgpService/UpdatePeer"
+	GoBgpService_ResetPeer_FullMethodName                    = "/api.GoBgpService/ResetPeer"
+	GoBgpService_ShutdownPeer_FullMethodName                 = "/api.GoBgpService/ShutdownPeer"
+	GoBgpService_EnablePeer_FullMethodName                   = "/api.GoBgpService/EnablePeer"
+	GoBgpService_DisablePeer_FullMethodName                  = "/api.GoBgpService/DisablePeer"
+	GoBgpService_AddPeerGroup_FullMethodName                 = "/api.GoBgpService/AddPeerGroup"
+	GoBgpService_DeletePeerGroup_FullMethodName              = "/api.GoBgpService/DeletePeerGroup"
+	GoBgpService_ListPeerGroup_FullMethodName                = "/api.GoBgpService/ListPeerGroup"
+	GoBgpService_UpdatePeerGroup_FullMethodName              = "/api.GoBgpService/UpdatePeerGroup"
+	GoBgpService_AddDynamicNeighbor_FullMethodName           = "/api.GoBgpService/AddDynamicNeighbor"
+	GoBgpService_ListDynamicNeighbor_FullMethodName          = "/api.GoBgpService/ListDynamicNeighbor"
+	GoBgpService_DeleteDynamicNeighbor_FullMethodName        = "/api.GoBgpService/DeleteDynamicNeighbor"
+	GoBgpService_AddPath_FullMethodName                      = "/api.GoBgpService/AddPath"
+	GoBgpService_DeletePath_FullMethodName                   = "/api.GoBgpService/DeletePath"
+	GoBgpService_ListPath_FullMethodName                     = "/api.GoBgpService/ListPath"
+	GoBgpService_AddPathStream_FullMethodName                = "/api.GoBgpService/AddPathStream"
+	GoBgpService_GetTable_FullMethodName                     = "/api.GoBgpService/GetTable"
+	GoBgpService_AddVrf_FullMethodName                       = "/api.GoBgpService/AddVrf"
+	GoBgpService_DeleteVrf_FullMethodName                    = "/api.GoBgpService/DeleteVrf"
+	GoBgpService_ListVrf_FullMethodName                      = "/api.GoBgpService/ListVrf"
+	GoBgpService_AddPolicy_FullMethodName                    = "/api.GoBgpService/AddPolicy"
+	GoBgpService_DeletePolicy_FullMethodName                 = "/api.GoBgpService/DeletePolicy"
+	GoBgpService_ListPolicy_FullMethodName                   = "/api.GoBgpService/ListPolicy"
+	GoBgpService_SetPolicies_FullMethodName                  = "/api.GoBgpService/SetPolicies"
+	GoBgpService_AddDefinedSet_FullMethodName                = "/api.GoBgpService/AddDefinedSet"
+	GoBgpService_DeleteDefinedSet_FullMethodName             = "/api.GoBgpService/DeleteDefinedSet"
+	GoBgpService_ListDefinedSet_FullMethodName               = "/api.GoBgpService/ListDefinedSet"
+	GoBgpService_AddStatement_FullMethodName                 = "/api.GoBgpService/AddStatement"
+	GoBgpService_DeleteStatement_FullMethodName              = "/api.GoBgpService/DeleteStatement"
+	GoBgpService_ListStatement_FullMethodName                = "/api.GoBgpService/ListStatement"
+	GoBgpService_AddPolicyAssignment_FullMethodName          = "/api.GoBgpService/AddPolicyAssignment"
+	GoBgpService_DeletePolicyAssignment_FullMethodName       = "/api.GoBgpService/DeletePolicyAssignment"
+	GoBgpService_ListPolicyAssignment_FullMethodName         = "/api.GoBgpService/ListPolicyAssignment"
+	GoBgpService_SetPolicyAssignment_FullMethodName          = "/api.GoBgpService/SetPolicyAssignment"
+	GoBgpService_AddRpki_FullMethodName                      = "/api.GoBgpService/AddRpki"
+	GoBgpService_DeleteRpki_FullMethodName                   = "/api.GoBgpService/DeleteRpki"
+	GoBgpService_ListRpki_FullMethodName                     = "/api.GoBgpService/ListRpki"
+	GoBgpService_EnableRpki_FullMethodName                   = "/api.GoBgpService/EnableRpki"
+	GoBgpService_DisableRpki_FullMethodName                  = "/api.GoBgpService/DisableRpki"
+	GoBgpService_ResetRpki_FullMethodName                    = "/api.GoBgpService/ResetRpki"
+	GoBgpService_ListRpkiTable_FullMethodName                = "/api.GoBgpService/ListRpkiTable"
+	GoBgpService_EnableZebra_FullMethodName                  = "/api.GoBgpService/EnableZebra"
+	GoBgpService_EnableMrt_FullMethodName                    = "/api.GoBgpService/EnableMrt"
+	GoBgpService_DisableMrt_FullMethodName                   = "/api.GoBgpService/DisableMrt"
+	GoBgpService_AddBmp_FullMethodName                       = "/api.GoBgpService/AddBmp"
+	GoBgpService_DeleteBmp_FullMethodName                    = "/api.GoBgpService/DeleteBmp"
+	GoBgpService_ListBmp_FullMethodName                      = "/api.GoBgpService/ListBmp"
+	GoBgpService_SetLogLevel_FullMethodName                  = "/api.GoBgpService/SetLogLevel"
+	GoBgpService_AddTcpAoKeychain_FullMethodName             = "/api.GoBgpService/AddTcpAoKeychain"
+	GoBgpService_UpdateTcpAoKeychain_FullMethodName          = "/api.GoBgpService/UpdateTcpAoKeychain"
+	GoBgpService_DeleteTcpAoKeychain_FullMethodName          = "/api.GoBgpService/DeleteTcpAoKeychain"
+	GoBgpService_ListTcpAoKeychain_FullMethodName            = "/api.GoBgpService/ListTcpAoKeychain"
 )
 
 // GoBgpServiceClient is the client API for GoBgpService service.
@@ -108,6 +109,7 @@ const (
 // Interface exported by the server.
 type GoBgpServiceClient interface {
 	StartBgp(ctx context.Context, in *StartBgpRequest, opts ...grpc.CallOption) (*StartBgpResponse, error)
+	CompleteInitialConfiguration(ctx context.Context, in *CompleteInitialConfigurationRequest, opts ...grpc.CallOption) (*CompleteInitialConfigurationResponse, error)
 	StopBgp(ctx context.Context, in *StopBgpRequest, opts ...grpc.CallOption) (*StopBgpResponse, error)
 	GetBgp(ctx context.Context, in *GetBgpRequest, opts ...grpc.CallOption) (*GetBgpResponse, error)
 	WatchEvent(ctx context.Context, in *WatchEventRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchEventResponse], error)
@@ -180,6 +182,16 @@ func (c *goBgpServiceClient) StartBgp(ctx context.Context, in *StartBgpRequest, 
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StartBgpResponse)
 	err := c.cc.Invoke(ctx, GoBgpService_StartBgp_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *goBgpServiceClient) CompleteInitialConfiguration(ctx context.Context, in *CompleteInitialConfigurationRequest, opts ...grpc.CallOption) (*CompleteInitialConfigurationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CompleteInitialConfigurationResponse)
+	err := c.cc.Invoke(ctx, GoBgpService_CompleteInitialConfiguration_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -902,6 +914,7 @@ type GoBgpService_ListTcpAoKeychainClient = grpc.ServerStreamingClient[ListTcpAo
 // Interface exported by the server.
 type GoBgpServiceServer interface {
 	StartBgp(context.Context, *StartBgpRequest) (*StartBgpResponse, error)
+	CompleteInitialConfiguration(context.Context, *CompleteInitialConfigurationRequest) (*CompleteInitialConfigurationResponse, error)
 	StopBgp(context.Context, *StopBgpRequest) (*StopBgpResponse, error)
 	GetBgp(context.Context, *GetBgpRequest) (*GetBgpResponse, error)
 	WatchEvent(*WatchEventRequest, grpc.ServerStreamingServer[WatchEventResponse]) error
@@ -972,6 +985,9 @@ type UnimplementedGoBgpServiceServer struct{}
 
 func (UnimplementedGoBgpServiceServer) StartBgp(context.Context, *StartBgpRequest) (*StartBgpResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StartBgp not implemented")
+}
+func (UnimplementedGoBgpServiceServer) CompleteInitialConfiguration(context.Context, *CompleteInitialConfigurationRequest) (*CompleteInitialConfigurationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CompleteInitialConfiguration not implemented")
 }
 func (UnimplementedGoBgpServiceServer) StopBgp(context.Context, *StopBgpRequest) (*StopBgpResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopBgp not implemented")
@@ -1182,6 +1198,24 @@ func _GoBgpService_StartBgp_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GoBgpServiceServer).StartBgp(ctx, req.(*StartBgpRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GoBgpService_CompleteInitialConfiguration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteInitialConfigurationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GoBgpServiceServer).CompleteInitialConfiguration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GoBgpService_CompleteInitialConfiguration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GoBgpServiceServer).CompleteInitialConfiguration(ctx, req.(*CompleteInitialConfigurationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2131,6 +2165,10 @@ var GoBgpService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StartBgp",
 			Handler:    _GoBgpService_StartBgp_Handler,
+		},
+		{
+			MethodName: "CompleteInitialConfiguration",
+			Handler:    _GoBgpService_CompleteInitialConfiguration_Handler,
 		},
 		{
 			MethodName: "StopBgp",

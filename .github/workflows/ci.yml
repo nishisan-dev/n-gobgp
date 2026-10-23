@@ -804,6 +804,7 @@ jobs:
           python3 test/integration/r03_rpki_vrf.py --gobgpd "$RUNNER_TEMP/gobgpd-r03"
           python3 test/integration/r03_refresh_addpath.py --gobgpd "$RUNNER_TEMP/gobgpd-r03"
           python3 test/integration/r03_gr_llgr.py --gobgpd "$RUNNER_TEMP/gobgpd-r03"
+          go test -race ./pkg/server -run 'TestGRStartup|TestGRInitialConfiguration' -count=1 -timeout=90s
 
   required:
     name: required

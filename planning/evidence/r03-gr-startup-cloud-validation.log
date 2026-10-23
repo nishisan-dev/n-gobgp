@@ -1,0 +1,90 @@
+BASELINE 08e2eafe: five expected failures, exit 1
+--- FAIL: TestGRStartupSelectionAndEORPerFamily (0.05s)
+    gr_startup_regression_test.go:65:
+            Error Trace:    /work/pkg/server/gr_startup_regression_test.go:65
+            Error:          Should be empty, but was [{ 203.0.113.0/24 | src: { 192.0.2.10 | as: 65000, id: 192.0.2.10 }, nh: 192.0.2.1 } { 2001:db8:10::/48 | src: { 192.0.2.10 | as: 65000, id: 192.0.2.10 }, nh: 2001:db8::1 }]
+            Test:           TestGRStartupSelectionAndEORPerFamily
+            Messages:       selection must wait for every relevant peer
+--- FAIL: TestGRStartupRestartBitDoesNotFabricateEOR (0.04s)
+    gr_startup_regression_test.go:82:
+            Error Trace:    /work/pkg/server/gr_startup_regression_test.go:82
+            Error:          Should be false
+            Test:           TestGRStartupRestartBitDoesNotFabricateEOR
+            Messages:       R bit excludes the peer from the wait, but is not an actual EOR
+--- FAIL: TestGRStartupHelperOnlyPeerStillNeedsEOR (0.05s)
+    gr_startup_regression_test.go:99:
+            Error Trace:    /work/pkg/server/gr_startup_regression_test.go:99
+            Error:          Condition satisfied
+            Test:           TestGRStartupHelperOnlyPeerStillNeedsEOR
+--- FAIL: TestGRStartupDeferralDeadlineSharedWithDisconnectedPeer (1.03s)
+    gr_startup_regression_test.go:111:
+            Error Trace:    /work/pkg/server/gr_startup_regression_test.go:111
+            Error:          Should be false
+            Test:           TestGRStartupDeferralDeadlineSharedWithDisconnectedPeer
+            Messages:       one family deadline must bound the whole restart cohort
+--- FAIL: TestGRStartupSecondaryRouteEmptyEOR (0.00s)
+    gr_startup_regression_test.go:124:
+            Error Trace:    /work/pkg/server/gr_startup_regression_test.go:124
+            Error:          "[]" should have 2 item(s), but has 0
+            Test:           TestGRStartupSecondaryRouteEmptyEOR
+            Messages:       secondary-route peers need EOR even when their RIB is empty
+FAIL
+FAIL    github.com/osrg/gobgp/v4/pkg/server 1.299s
+FAIL
+
+
+FINAL CLOUD: target x3, full race, lint and 17 protocol cases (all passed); trailing actionlint discovery error corrected below
+ok      github.com/osrg/gobgp/v4/pkg/server 16.263s
+?       github.com/osrg/gobgp/v4/api    [no test files]
+ok      github.com/osrg/gobgp/v4/cmd/gobgp  1.141s
+?       github.com/osrg/gobgp/v4/cmd/gobgpd [no test files]
+ok      github.com/osrg/gobgp/v4/internal/pkg/netutils  1.242s
+ok      github.com/osrg/gobgp/v4/internal/pkg/table 3.818s
+ok      github.com/osrg/gobgp/v4/internal/pkg/version   1.052s
+ok      github.com/osrg/gobgp/v4/pkg/apiutil    1.328s
+ok      github.com/osrg/gobgp/v4/pkg/config 1.231s
+?       github.com/osrg/gobgp/v4/pkg/config/kafka   [no test files]
+ok      github.com/osrg/gobgp/v4/pkg/config/oc  1.892s
+ok      github.com/osrg/gobgp/v4/pkg/event  1.076s
+ok      github.com/osrg/gobgp/v4/pkg/metrics    5.166s
+ok      github.com/osrg/gobgp/v4/pkg/packet/bfd 1.120s
+ok      github.com/osrg/gobgp/v4/pkg/packet/bgp 1.585s
+ok      github.com/osrg/gobgp/v4/pkg/packet/bmp 1.144s
+ok      github.com/osrg/gobgp/v4/pkg/packet/mrt 1.050s
+ok      github.com/osrg/gobgp/v4/pkg/packet/rtr 1.048s
+ok      github.com/osrg/gobgp/v4/pkg/server 181.959s
+ok      github.com/osrg/gobgp/v4/pkg/sink/kafka 6.321s
+ok      github.com/osrg/gobgp/v4/pkg/zebra  1.069s
+?       github.com/osrg/gobgp/v4/tools/config   [no test files]
+?       github.com/osrg/gobgp/v4/tools/mrt-updates  [no test files]
+0 issues.
+{"case": "rpki-import", "result": "PASS"}
+{"case": "rpki-export", "result": "PASS"}
+{"case": "vrf-nht", "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 1, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 1, "enhanced": false, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": false, "result": "PASS"}
+{"case": "enhanced-refresh", "result": "PASS"}
+{"case": "gr-eor-family", "result": "PASS"}
+{"case": "gr-reconnect-preserve", "result": "PASS"}
+{"case": "gr-reconnect-clear-forwarding", "result": "PASS"}
+{"case": "gr-reconnect-withdraw-capability", "result": "PASS"}
+{"case": "llgr-eor", "result": "PASS"}
+{"case": "llgr-expiry", "result": "PASS"}
+{"case": "llgr-clear-forwarding", "result": "PASS"}
+{"case": "llgr-consecutive", "result": "PASS"}
+{"case": "llgr-llgr-only", "result": "PASS"}
+no project was found in any parent directories of "/work". check workflows directory is put correctly in your Git repository
+
+
+PROTOBUF COMPATIBILITY AND GENERATION: exit 0
+PASS protobuf lint, format, backward compatibility and generated code
+
+
+DOCUMENTATION AND EXPLICIT WORKFLOW CHECK: exit 0
+PASS documentation and workflow checks
+
+
+BUILD INPUT IDENTITY: exit 0
+PASS identical build inputs: 280

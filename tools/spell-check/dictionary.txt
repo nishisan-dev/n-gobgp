@@ -35,6 +35,7 @@ kafka
 keepalive
 keepalives
 keychain
+lifecycle
 llgr
 localhost
 messageloop

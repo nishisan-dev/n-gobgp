@@ -35,6 +35,7 @@ option go_package = "github.com/osrg/gobgp/v4/api;api";
 // Interface exported by the server.
 service GoBgpService {
   rpc StartBgp(StartBgpRequest) returns (StartBgpResponse);
+  rpc CompleteInitialConfiguration(CompleteInitialConfigurationRequest) returns (CompleteInitialConfigurationResponse);
   rpc StopBgp(StopBgpRequest) returns (StopBgpResponse);
   rpc GetBgp(GetBgpRequest) returns (GetBgpResponse);
 
@@ -114,9 +115,13 @@ service GoBgpService {
 
 message StartBgpRequest {
   Global global = 1;
+  // Hold peer activation until CompleteInitialConfiguration is called.
+  bool defer_initial_configuration = 2;
 }
 
-message StartBgpResponse {}
+message StartBgpResponse {
+  InitialConfigurationState initial_configuration = 1;
+}
 
 message StopBgpRequest {
   // Allows the Graceful Restart procedure on the remote peers by not sending a NOTIFICATION message to GR-enabled peers.
@@ -129,6 +134,7 @@ message GetBgpRequest {}
 
 message GetBgpResponse {
   Global global = 1;
+  InitialConfigurationState initial_configuration = 2;
 }
 
 message WatchEventRequest {
@@ -1522,4 +1528,17 @@ message TcpAoKeyState {
   bool receive_next = 4;
   uint64 packets_good = 5;
   uint64 packets_bad = 6;
+}
+
+message InitialConfigurationState {
+  string generation = 1;
+  bool pending = 2;
+}
+
+message CompleteInitialConfigurationRequest {
+  string generation = 1;
+}
+
+message CompleteInitialConfigurationResponse {
+  InitialConfigurationState initial_configuration = 1;
 }
