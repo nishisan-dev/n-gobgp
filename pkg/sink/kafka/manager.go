@@ -13,15 +13,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/osrg/gobgp/v4/internal/pkg/version"
 	config "github.com/osrg/gobgp/v4/pkg/config/kafka"
 	"github.com/osrg/gobgp/v4/pkg/event"
 	"github.com/osrg/gobgp/v4/pkg/packet/bgp"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/time/rate"
 )
-
-func goBGPVersion() string { return version.Version() }
 
 type Manager struct {
 	config          config.Config

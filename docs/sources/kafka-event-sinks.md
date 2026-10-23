@@ -110,6 +110,14 @@ shared across fan-out copies and remains stable in durable replay; consumers
 can deduplicate per sink using this identifier. Source and event type headers
 also distinguish EOR and the observed RIB view without changing protobuf.
 
+Capture identity headers are additive: `fork-name` (`n-gobgp`), `fork-version`,
+`fork-commit` (full SHA or `unknown`), `fork-dirty` (`true`, `false` or `unknown`),
+`upstream-repository` and `upstream-commit` (incorporated base SHA).
+`gobgp-version` identifies the upstream protocol base, not the fork release.
+All identity headers are persisted with the record and preserved on retry and
+replay after upgrades; they describe the capturing binary. Older spool records
+without these headers are delivered unchanged. Protobuf values are unchanged.
+
 ## Kafka record JSON examples
 
 The following examples show a **decoded inspection view of a Kafka record**.
@@ -122,8 +130,8 @@ The addresses, ASNs, timestamps, IDs and topics below are illustrative. Payloads
 were generated using the native GoBGP watcher conversion and the actual
 ProtoJSON serializer, rather than a separate BGP JSON model. The examples use
 `key.strategy: peer` and `collectorId: edge-router-01`. Whitespace is expanded
-for readability; actual producer values use compact ProtoJSON. Build metadata
-may change `gobgp-version` in real deployments.
+for readability; actual producer values use compact ProtoJSON. The examples predate the additive fork identity headers described above;
+new captures include them as separate Kafka headers.
 
 The [complete example record views](../examples/kafka-records.json) are also
 available as a JSON file. Jump to:

@@ -1344,7 +1344,7 @@ func capabilitiesFromConfig(pConf *oc.Neighbor) []bgp.ParameterCapabilityInterfa
 	caps = append(caps, bgp.NewCapFQDN(fqdn, ""))
 
 	if pConf.Config.SendSoftwareVersion || pConf.Config.PeerType == oc.PEER_TYPE_INTERNAL {
-		softwareVersion := fmt.Sprintf("GoBGP/%s", version.Version())
+		softwareVersion := fmt.Sprintf("%s/%s", version.Product, version.Version())
 		caps = append(caps, bgp.NewCapSoftwareVersion(softwareVersion))
 	}
 

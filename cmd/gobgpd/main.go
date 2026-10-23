@@ -96,7 +96,7 @@ func main() {
 	}
 
 	if opts.Version {
-		fmt.Println("gobgpd version", version.Version())
+		fmt.Println("gobgpd version", version.Description())
 		os.Exit(0)
 	}
 
