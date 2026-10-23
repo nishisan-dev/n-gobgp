@@ -36,7 +36,7 @@ def decode_nlris(data, family, addpath):
 
 
 class Peer:
-    def __init__(self, address, asn, receive_addpath=False, send_addpath=False, enhanced=True, gr=False, restarting=False):
+    def __init__(self, address, asn, receive_addpath=False, send_addpath=False, enhanced=True, gr=False, restarting=False, restart_time=60, gr_families=None, llgr=None):
         self.address, self.asn = address, asn
         self.receive_addpath, self.send_addpath = receive_addpath, send_addpath
         self.routes, self.messages = set(), []
@@ -50,7 +50,13 @@ class Peer:
             mode = int(receive_addpath) | (int(send_addpath) << 1)
             caps += bytes([69, 8]) + struct.pack('!HBBHBB', 1, 1, mode, 2, 1, mode)
         if gr:
-            caps += bytes([64, 10]) + struct.pack('!HHBBHBB', 60 | (0x8000 if restarting else 0), 1, 1, 128, 2, 1, 128)
+            families = {1: True, 2: True} if gr_families is None else gr_families
+            value = struct.pack('!H', restart_time | (0x8000 if restarting else 0))
+            value += b''.join(struct.pack('!HBB', family, 1, 128 if preserved else 0) for family, preserved in families.items())
+            caps += bytes([64, len(value)]) + value
+        if llgr is not None:
+            value = b''.join(struct.pack('!HBB', family, 1, 128 if preserved else 0) + seconds.to_bytes(3, 'big') for family, (preserved, seconds) in llgr.items())
+            caps += bytes([71, len(value)]) + value
         options = bytes([2, len(caps)]) + caps
         body = struct.pack('!BHH4sB', 4, asn, 90, socket.inet_aton(address), len(options)) + options
         self.opening = bgp_frame(1, body) + bgp_frame(4)
@@ -108,11 +114,13 @@ class Peer:
             if not self.stopping:
                 self.error = str(error)
 
-    def announce(self, prefix, path_id=0, withdraw=False, aspath=None):
+    def announce(self, prefix, path_id=0, withdraw=False, aspath=None, communities=()):
         family = 1 if ipaddress.ip_network(prefix).version == 4 else 2
         paths = nlris(prefix, path_id if self.send_addpath else None)
         aspath = aspath or [self.asn]
         attrs = bytes([64, 1, 1, 0, 64, 2, 2+2*len(aspath), 2, len(aspath)]) + b''.join(struct.pack('!H', n) for n in aspath)
+        if communities:
+            attrs += bytes([192, 8, 4*len(communities)]) + b''.join(struct.pack('!I', n) for n in communities)
         if family == 1:
             attrs += bytes([64, 3, 4]) + socket.inet_aton(self.address)
             body = struct.pack('!H', len(paths)) + paths + b'\0\0' if withdraw else b'\0\0' + struct.pack('!H', len(attrs)) + attrs + paths
@@ -156,14 +164,18 @@ class Peer:
         self.worker.join(timeout=3)
 
 
-def config_peer(address, asn, send_max=0, receive=False, gr=False):
+def config_peer(address, asn, send_max=0, receive=False, gr=False, llgr=None):
     text = f'[[neighbors]]\n[neighbors.config]\nneighbor-address = "{address}"\npeer-as = {asn}\n[neighbors.transport.config]\npassive-mode = true\n'
     if gr:
         text += '[neighbors.graceful-restart.config]\nenabled = true\nrestart-time = 60\n'
+        if llgr is not None:
+            text += 'long-lived-enabled = true\n'
     for family in ('ipv4-unicast', 'ipv6-unicast'):
         text += f'[[neighbors.afi-safis]]\n[neighbors.afi-safis.config]\nafi-safi-name = "{family}"\nenabled = true\n[neighbors.afi-safis.add-paths.config]\nreceive = {str(receive).lower()}\nsend-max = {send_max}\n'
         if gr:
             text += '[neighbors.afi-safis.mp-graceful-restart.config]\nenabled = true\n'
+        if llgr is not None:
+            text += f'[neighbors.afi-safis.long-lived-graceful-restart.config]\nenabled = true\nrestart-time = {llgr}\n'
     return text
 
 

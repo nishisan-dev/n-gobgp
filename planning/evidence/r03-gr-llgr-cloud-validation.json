@@ -1,0 +1,138 @@
+{
+  "status": "PASS",
+  "date_utc": "2026-10-23T17:06:39.099999+00:00",
+  "base_commit": "23fa1d208de80255919e364c16f12385ac35d384",
+  "branch": "codex/r03-gr-llgr-lifecycle",
+  "issues": [
+    13,
+    14
+  ],
+  "source_archive_sha256": "30ddacad07a8ae4bb1a500b8334c1e07febccc1662c3f0a4c0ca27adfae0c253",
+  "all_go_python_build_inputs_sha256": "c169eacd663a49aed286b76425b9dc15a9ce01882f9fb759c878538db3605116",
+  "changed_build_input_sha256": {
+    ".github/workflows/ci.yml": "3071807c157d991b1271ab7a604f908d9f56e6f8e3cd16d5c636041428157b94",
+    "pkg/server/fsm.go": "ae1ea2e4fbcd1424e9e38e232a4adf4a24fe9c41ced7b098c264e4783833534d",
+    "pkg/server/peer.go": "a8c5e1a588c3b00b7cf55c18e8d5b4da82dee3e2e90b441a099de053ff5b355b",
+    "pkg/server/server.go": "ec5d5463e2c9090efacdc43676da826af4b1e9462eb5eeab9d92c607dbdd40d5",
+    "pkg/server/gr_llgr_lifecycle_test.go": "197e667d7058119acf659043cbcf5f0ca124ae80eaab150650f56042822c807f",
+    "test/integration/r03_refresh_addpath.py": "4ff00cff146f49a7feb4e00086630dd89d9b2a5fd4f5feafaea6a6fe91f47c9e",
+    "test/integration/r03_gr_llgr.py": "9e384af627e2026845f5bc9a4e28a55ef024ab777686320cb120566a7dc7f52b"
+  },
+  "cloud": {
+    "ssh": "root@157.173.116.3",
+    "architecture": "linux/amd64",
+    "go": "go1.27.3",
+    "image": "golang:1.27.3@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc",
+    "workspace": "/var/tmp/ngobgp-gr-llgr-20261023/final",
+    "cpus": 4,
+    "memory_bytes": 6442450944,
+    "network": "none",
+    "published_ports": [],
+    "privileged": false,
+    "dependency_preparation": "Image pull and go mod download completed before offline validation.",
+    "old_lab_192_168_5_89_used": false
+  },
+  "commands": [
+    "go test -race ./... -count=1 -timeout=240s",
+    "go test -race ./pkg/server -run 'TestLLGR|TestGR(NewConnection|Negotiation|EOR|Reconnection)' -count=3 -timeout=90s",
+    "go build -race -o /tmp/gobgpd ./cmd/gobgpd",
+    "python3 test/integration/r03_rpki_vrf.py --gobgpd /tmp/gobgpd",
+    "python3 test/integration/r03_refresh_addpath.py --gobgpd /tmp/gobgpd",
+    "python3 test/integration/r03_gr_llgr.py --gobgpd /tmp/gobgpd"
+  ],
+  "results": {
+    "local_full_race": true,
+    "cloud_full_race": true,
+    "targeted_repetitions_each_environment": 3,
+    "protocol_cases_each_environment": 17,
+    "protocol_cases": [
+      {
+        "case": "rpki-import",
+        "result": "PASS"
+      },
+      {
+        "case": "rpki-export",
+        "result": "PASS"
+      },
+      {
+        "case": "vrf-nht",
+        "result": "PASS"
+      },
+      {
+        "case": "refresh-addpath",
+        "send-max": 1,
+        "enhanced": true,
+        "result": "PASS"
+      },
+      {
+        "case": "refresh-addpath",
+        "send-max": 2,
+        "enhanced": true,
+        "result": "PASS"
+      },
+      {
+        "case": "refresh-addpath",
+        "send-max": 1,
+        "enhanced": false,
+        "result": "PASS"
+      },
+      {
+        "case": "refresh-addpath",
+        "send-max": 2,
+        "enhanced": false,
+        "result": "PASS"
+      },
+      {
+        "case": "enhanced-refresh",
+        "result": "PASS"
+      },
+      {
+        "case": "gr-eor-family",
+        "result": "PASS"
+      },
+      {
+        "case": "gr-reconnect-preserve",
+        "result": "PASS"
+      },
+      {
+        "case": "gr-reconnect-clear-forwarding",
+        "result": "PASS"
+      },
+      {
+        "case": "gr-reconnect-withdraw-capability",
+        "result": "PASS"
+      },
+      {
+        "case": "llgr-eor",
+        "result": "PASS"
+      },
+      {
+        "case": "llgr-expiry",
+        "result": "PASS"
+      },
+      {
+        "case": "llgr-clear-forwarding",
+        "result": "PASS"
+      },
+      {
+        "case": "llgr-consecutive",
+        "result": "PASS"
+      },
+      {
+        "case": "llgr-llgr-only",
+        "result": "PASS"
+      }
+    ],
+    "golangci_lint": true,
+    "actionlint": true,
+    "ci_gate_tests": true,
+    "markdownlint": true,
+    "spell_check": true
+  },
+  "limitations": [
+    "Protocol peers are wire fixtures, not independent router implementations.",
+    "Local restart API configuration barrier and selection/deferral across multiple peers remain under R03.",
+    "Large-table capacity and incomplete-refresh time limits remain under R03."
+  ],
+  "log_sha256": "e8da9dfeff0b627a7709daefa1b888b8a39d788907ffbf9fc6ee3ddc81aa992b"
+}
