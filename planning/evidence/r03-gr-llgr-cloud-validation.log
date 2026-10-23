@@ -1,0 +1,228 @@
+BASELINE 23fa1d20: Go regressions fail (expected exit 1; injected test file SHA-256 c1fe41d7b8fb54421c509b434be43261f7edb38b575848e0c7861c9e59292399)
+2026/10/23 13:49:28 WARN Closed an accepted connection State=BGP_FSM_IDLE
+2026/10/23 13:49:29 WARN Closed an accepted connection State=BGP_FSM_IDLE
+--- FAIL: TestGRNewConnectionReplacesEstablishedSession (1.02s)
+    --- FAIL: TestGRNewConnectionReplacesEstablishedSession/true (1.00s)
+        gr_llgr_lifecycle_test.go:40: GR reconnect must replace the previous socket without waiting for hold time
+2026/10/23 13:49:29 INFO LLGR restart timer started Topic=Peer Key=192.0.2.10 Family=ipv4-unicast Duration=1
+2026/10/23 13:49:29 INFO LLGR restart timer started Topic=Peer Key=192.0.2.10 Family=ipv6-unicast Duration=5
+2026/10/23 13:49:29 INFO LLGR restart timer stopped Topic=Peer Key=192.0.2.10 Family=ipv4-unicast Duration=1
+2026/10/23 13:49:29 INFO LLGR restart timer stopped Topic=Peer Key=192.0.2.10 Family=ipv6-unicast Duration=5
+--- FAIL: TestLLGRDoesNotStartOnFailedHandshake (0.02s)
+    gr_llgr_lifecycle_test.go:85:
+                Error Trace:    /tmp/ngobgp-gr-baseline/pkg/server/gr_llgr_lifecycle_test.go:85
+                Error:          Should be false
+                Test:           TestLLGRDoesNotStartOnFailedHandshake
+2026/10/23 13:49:29 INFO LLGR restart timer started Topic=Peer Key=192.0.2.10 Family=ipv6-unicast Duration=5
+2026/10/23 13:49:29 INFO LLGR restart timer started Topic=Peer Key=192.0.2.10 Family=ipv4-unicast Duration=1
+2026/10/23 13:49:30 INFO LLGR restart timer expired Topic=Peer Key=192.0.2.10 Family=ipv4-unicast Duration=1
+2026/10/23 13:49:30 INFO LLGR restart timer stopped Topic=Peer Key=192.0.2.10 Family=ipv6-unicast Duration=5
+--- FAIL: TestLLGRExpiryPreservesRefreshedPaths (1.01s)
+    gr_llgr_lifecycle_test.go:105:
+                Error Trace:    /tmp/ngobgp-gr-baseline/pkg/server/gr_llgr_lifecycle_test.go:105
+                Error:          "[]" should have 1 item(s), but has 0
+                Test:           TestLLGRExpiryPreservesRefreshedPaths
+                Messages:       LLST expiry must remove only routes still stale during synchronization
+2026/10/23 13:49:30 INFO LLGR restart timer started Topic=Peer Key=192.0.2.10 Family=ipv4-unicast Duration=1
+2026/10/23 13:49:30 INFO LLGR restart timer started Topic=Peer Key=192.0.2.10 Family=ipv6-unicast Duration=5
+2026/10/23 13:49:31 INFO LLGR restart timer expired Topic=Peer Key=192.0.2.10 Family=ipv4-unicast Duration=1
+2026/10/23 13:49:31 INFO LLGR restart timer stopped Topic=Peer Key=192.0.2.10 Family=ipv6-unicast Duration=5
+--- FAIL: TestLLGREORStopsOnlyCompletedFamilyTimer (1.01s)
+    gr_llgr_lifecycle_test.go:118:
+                Error Trace:    /tmp/ngobgp-gr-baseline/pkg/server/gr_llgr_lifecycle_test.go:118
+                Error:          Condition satisfied
+                Test:           TestLLGREORStopsOnlyCompletedFamilyTimer
+--- FAIL: TestGRReconnectionReconcilesRetainedFamilies (0.01s)
+    --- FAIL: TestGRReconnectionReconcilesRetainedFamilies/llgr=false/clear-forwarding (0.00s)
+        gr_llgr_lifecycle_test.go:168:
+                Error Trace:    /tmp/ngobgp-gr-baseline/pkg/server/gr_llgr_lifecycle_test.go:168
+                Error:          Not equal:
+                                expected: 0
+                                actual  : 1
+                Test:           TestGRReconnectionReconcilesRetainedFamilies/llgr=false/clear-forwarding
+    --- FAIL: TestGRReconnectionReconcilesRetainedFamilies/llgr=false/missing-family (0.00s)
+        gr_llgr_lifecycle_test.go:168:
+                Error Trace:    /tmp/ngobgp-gr-baseline/pkg/server/gr_llgr_lifecycle_test.go:168
+                Error:          Not equal:
+                                expected: 0
+                                actual  : 1
+                Test:           TestGRReconnectionReconcilesRetainedFamilies/llgr=false/missing-family
+    --- FAIL: TestGRReconnectionReconcilesRetainedFamilies/llgr=false/missing-capability (0.00s)
+        gr_llgr_lifecycle_test.go:168:
+                Error Trace:    /tmp/ngobgp-gr-baseline/pkg/server/gr_llgr_lifecycle_test.go:168
+                Error:          Not equal:
+                                expected: 0
+                                actual  : 1
+                Test:           TestGRReconnectionReconcilesRetainedFamilies/llgr=false/missing-capability
+    --- FAIL: TestGRReconnectionReconcilesRetainedFamilies/llgr=true/clear-forwarding (0.00s)
+        gr_llgr_lifecycle_test.go:168:
+                Error Trace:    /tmp/ngobgp-gr-baseline/pkg/server/gr_llgr_lifecycle_test.go:168
+                Error:          Not equal:
+                                expected: 0
+                                actual  : 1
+                Test:           TestGRReconnectionReconcilesRetainedFamilies/llgr=true/clear-forwarding
+    --- FAIL: TestGRReconnectionReconcilesRetainedFamilies/llgr=true/missing-family (0.00s)
+        gr_llgr_lifecycle_test.go:168:
+                Error Trace:    /tmp/ngobgp-gr-baseline/pkg/server/gr_llgr_lifecycle_test.go:168
+                Error:          Not equal:
+                                expected: 0
+                                actual  : 1
+                Test:           TestGRReconnectionReconcilesRetainedFamilies/llgr=true/missing-family
+    --- FAIL: TestGRReconnectionReconcilesRetainedFamilies/llgr=true/missing-capability (0.00s)
+        gr_llgr_lifecycle_test.go:168:
+                Error Trace:    /tmp/ngobgp-gr-baseline/pkg/server/gr_llgr_lifecycle_test.go:168
+                Error:          Not equal:
+                                expected: 0
+                                actual  : 1
+                Test:           TestGRReconnectionReconcilesRetainedFamilies/llgr=true/missing-capability
+--- FAIL: TestLLGRRequiresNegotiatedGR (0.00s)
+    --- FAIL: TestLLGRRequiresNegotiatedGR/true (0.00s)
+        gr_llgr_lifecycle_test.go:196:
+                Error Trace:    /tmp/ngobgp-gr-baseline/pkg/server/gr_llgr_lifecycle_test.go:196
+                Error:          Should be false
+                Test:           TestLLGRRequiresNegotiatedGR/true
+    --- FAIL: TestLLGRRequiresNegotiatedGR/false (0.00s)
+        gr_llgr_lifecycle_test.go:196:
+                Error Trace:    /tmp/ngobgp-gr-baseline/pkg/server/gr_llgr_lifecycle_test.go:196
+                Error:          Should be false
+                Test:           TestLLGRRequiresNegotiatedGR/false
+--- FAIL: TestGRNegotiationDoesNotReusePreviousSession (0.00s)
+    gr_llgr_lifecycle_test.go:215:
+                Error Trace:    /tmp/ngobgp-gr-baseline/pkg/server/gr_llgr_lifecycle_test.go:215
+                Error:          Should be false
+                Test:           TestGRNegotiationDoesNotReusePreviousSession
+2026/10/23 13:49:31 INFO LLGR restart timer started Topic=Peer Key=192.0.2.10 Family=ipv4-unicast Duration=0
+2026/10/23 13:49:31 INFO LLGR restart timer started Topic=Peer Key=192.0.2.10 Family=ipv6-unicast Duration=60
+2026/10/23 13:49:31 INFO LLGR restart timer expired Topic=Peer Key=192.0.2.10 Family=ipv4-unicast Duration=0
+--- FAIL: TestLLGRZeroTimeAndNoLLGRWithdrawals (3.00s)
+    gr_llgr_lifecycle_test.go:246:
+                Error Trace:    /tmp/ngobgp-gr-baseline/pkg/server/refresh_regression_test.go:326
+                                                        /snap/go/11382/src/runtime/asm_amd64.s:1264
+                Error:          Not equal:
+                                expected: 1
+                                actual  : 3
+                Messages:       adj-in: map[192.0.2.10:2001:db8:10::/48:0:true 192.0.2.10:2001:db8:11::/48:0:true 192.0.2.10:2001:db8:12::/48:0:true]
+    gr_llgr_lifecycle_test.go:246:
+                Error Trace:    /tmp/ngobgp-gr-baseline/pkg/server/refresh_regression_test.go:323
+                                                        /tmp/ngobgp-gr-baseline/pkg/server/gr_llgr_lifecycle_test.go:246
+                Error:          Condition never satisfied
+                Test:           TestLLGRZeroTimeAndNoLLGRWithdrawals
+2026/10/23 13:49:34 INFO LLGR restart timer stopped Topic=Peer Key=192.0.2.10 Family=ipv6-unicast Duration=60
+FAIL
+FAIL    github.com/osrg/gobgp/v4/pkg/server     6.108s
+FAIL
+
+PRE-FINAL REPAIR: administrative stops retain routes (expected exit 1)
+--- FAIL: TestLLGRAdministrativeStopCancelsRecovery (0.00s)
+    --- FAIL: TestLLGRAdministrativeStopCancelsRecovery/admin-down (0.00s)
+        gr_llgr_lifecycle_test.go:295:
+                Error Trace:    /home/lucas/Projects/nishisan/n-gobgp/pkg/server/gr_llgr_lifecycle_test.go:295
+                Error:          Should be zero, but was 1
+                Test:           TestLLGRAdministrativeStopCancelsRecovery/admin-down
+                Messages:       explicit stop during recovery must remove retained routes
+    --- FAIL: TestLLGRAdministrativeStopCancelsRecovery/admin-reset (0.00s)
+        gr_llgr_lifecycle_test.go:295:
+                Error Trace:    /home/lucas/Projects/nishisan/n-gobgp/pkg/server/gr_llgr_lifecycle_test.go:295
+                Error:          Should be zero, but was 1
+                Test:           TestLLGRAdministrativeStopCancelsRecovery/admin-reset
+                Messages:       explicit stop during recovery must remove retained routes
+    --- FAIL: TestLLGRAdministrativeStopCancelsRecovery/hard-reset (0.00s)
+        gr_llgr_lifecycle_test.go:295:
+                Error Trace:    /home/lucas/Projects/nishisan/n-gobgp/pkg/server/gr_llgr_lifecycle_test.go:295
+                Error:          Should be zero, but was 1
+                Test:           TestLLGRAdministrativeStopCancelsRecovery/hard-reset
+                Messages:       explicit stop during recovery must remove retained routes
+FAIL
+FAIL    github.com/osrg/gobgp/v4/pkg/server     0.009s
+FAIL
+
+FINAL LOCAL: full go test -race ./... -count=1 -timeout=240s (exit 0)
+?       github.com/osrg/gobgp/v4/api    [no test files]
+ok      github.com/osrg/gobgp/v4/cmd/gobgp      1.041s
+?       github.com/osrg/gobgp/v4/cmd/gobgpd     [no test files]
+ok      github.com/osrg/gobgp/v4/internal/pkg/netutils  1.083s
+ok      github.com/osrg/gobgp/v4/internal/pkg/table     2.069s
+ok      github.com/osrg/gobgp/v4/internal/pkg/version   1.016s
+ok      github.com/osrg/gobgp/v4/pkg/apiutil    1.059s
+ok      github.com/osrg/gobgp/v4/pkg/config     1.048s
+?       github.com/osrg/gobgp/v4/pkg/config/kafka       [no test files]
+ok      github.com/osrg/gobgp/v4/pkg/config/oc  1.082s
+ok      github.com/osrg/gobgp/v4/pkg/event      1.024s
+ok      github.com/osrg/gobgp/v4/pkg/metrics    3.531s
+ok      github.com/osrg/gobgp/v4/pkg/packet/bfd 1.012s
+ok      github.com/osrg/gobgp/v4/pkg/packet/bgp 1.104s
+ok      github.com/osrg/gobgp/v4/pkg/packet/bmp 1.026s
+ok      github.com/osrg/gobgp/v4/pkg/packet/mrt 1.017s
+ok      github.com/osrg/gobgp/v4/pkg/packet/rtr 1.014s
+ok      github.com/osrg/gobgp/v4/pkg/server     166.714s
+ok      github.com/osrg/gobgp/v4/pkg/sink/kafka 4.783s
+ok      github.com/osrg/gobgp/v4/pkg/zebra      1.039s
+?       github.com/osrg/gobgp/v4/tools/config   [no test files]
+?       github.com/osrg/gobgp/v4/tools/mrt-updates      [no test files]
+
+FINAL LOCAL: GR/LLGR regressions repeated three times (exit 0)
+ok      github.com/osrg/gobgp/v4/pkg/server     12.357s
+
+FINAL LOCAL: 17 TCP protocol cases against race-enabled gobgpd (exit 0)
+{"case": "rpki-import", "result": "PASS"}
+{"case": "rpki-export", "result": "PASS"}
+{"case": "vrf-nht", "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 1, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 1, "enhanced": false, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": false, "result": "PASS"}
+{"case": "enhanced-refresh", "result": "PASS"}
+{"case": "gr-eor-family", "result": "PASS"}
+{"case": "gr-reconnect-preserve", "result": "PASS"}
+{"case": "gr-reconnect-clear-forwarding", "result": "PASS"}
+{"case": "gr-reconnect-withdraw-capability", "result": "PASS"}
+{"case": "llgr-eor", "result": "PASS"}
+{"case": "llgr-expiry", "result": "PASS"}
+{"case": "llgr-clear-forwarding", "result": "PASS"}
+{"case": "llgr-consecutive", "result": "PASS"}
+{"case": "llgr-llgr-only", "result": "PASS"}
+
+FINAL CLOUD: full race suite, three regression repetitions, 17 TCP cases (exit 0)
+?       github.com/osrg/gobgp/v4/api    [no test files]
+ok      github.com/osrg/gobgp/v4/cmd/gobgp      1.328s
+?       github.com/osrg/gobgp/v4/cmd/gobgpd     [no test files]
+ok      github.com/osrg/gobgp/v4/internal/pkg/netutils  1.481s
+ok      github.com/osrg/gobgp/v4/internal/pkg/table     3.840s
+ok      github.com/osrg/gobgp/v4/internal/pkg/version   1.376s
+ok      github.com/osrg/gobgp/v4/pkg/apiutil    1.224s
+ok      github.com/osrg/gobgp/v4/pkg/config     1.164s
+?       github.com/osrg/gobgp/v4/pkg/config/kafka       [no test files]
+ok      github.com/osrg/gobgp/v4/pkg/config/oc  1.190s
+ok      github.com/osrg/gobgp/v4/pkg/event      1.110s
+ok      github.com/osrg/gobgp/v4/pkg/metrics    6.563s
+ok      github.com/osrg/gobgp/v4/pkg/packet/bfd 1.178s
+ok      github.com/osrg/gobgp/v4/pkg/packet/bgp 1.489s
+ok      github.com/osrg/gobgp/v4/pkg/packet/bmp 1.115s
+ok      github.com/osrg/gobgp/v4/pkg/packet/mrt 1.362s
+ok      github.com/osrg/gobgp/v4/pkg/packet/rtr 1.061s
+ok      github.com/osrg/gobgp/v4/pkg/server     175.825s
+ok      github.com/osrg/gobgp/v4/pkg/sink/kafka 7.001s
+ok      github.com/osrg/gobgp/v4/pkg/zebra      1.053s
+?       github.com/osrg/gobgp/v4/tools/config   [no test files]
+?       github.com/osrg/gobgp/v4/tools/mrt-updates      [no test files]
+ok      github.com/osrg/gobgp/v4/pkg/server     13.612s
+{"case": "rpki-import", "result": "PASS"}
+{"case": "rpki-export", "result": "PASS"}
+{"case": "vrf-nht", "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 1, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 1, "enhanced": false, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": false, "result": "PASS"}
+{"case": "enhanced-refresh", "result": "PASS"}
+{"case": "gr-eor-family", "result": "PASS"}
+{"case": "gr-reconnect-preserve", "result": "PASS"}
+{"case": "gr-reconnect-clear-forwarding", "result": "PASS"}
+{"case": "gr-reconnect-withdraw-capability", "result": "PASS"}
+{"case": "llgr-eor", "result": "PASS"}
+{"case": "llgr-expiry", "result": "PASS"}
+{"case": "llgr-clear-forwarding", "result": "PASS"}
+{"case": "llgr-consecutive", "result": "PASS"}
+{"case": "llgr-llgr-only", "result": "PASS"}
+
+FINAL LOCAL: golangci-lint run ./... (exit 0)
+0 issues.

@@ -796,13 +796,14 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
-      - name: verify BGP observations after RPKI, VRF, refresh and EOR changes
+      - name: verify BGP recovery after RPKI, VRF, refresh, GR and LLGR changes
         env:
           GORACE: halt_on_error=1
         run: |
           go build -race -o "$RUNNER_TEMP/gobgpd-r03" ./cmd/gobgpd
           python3 test/integration/r03_rpki_vrf.py --gobgpd "$RUNNER_TEMP/gobgpd-r03"
           python3 test/integration/r03_refresh_addpath.py --gobgpd "$RUNNER_TEMP/gobgpd-r03"
+          python3 test/integration/r03_gr_llgr.py --gobgpd "$RUNNER_TEMP/gobgpd-r03"
 
   required:
     name: required

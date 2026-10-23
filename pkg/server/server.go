@@ -1449,6 +1449,75 @@ func (s *BgpServer) dropAdjRIBIn(peer *peer, families []bgp.Family) {
 	s.propagateUpdate(peer, dropped)
 }
 
+func (s *BgpServer) dropStaleAdjRIBIn(peer *peer, families []bgp.Family) {
+	if s.isWatched(watchEventTypeAdjInWithdraw) {
+		var removed []*table.Path
+		for _, p := range peer.adjRibIn.PathList(families, false) {
+			if p.IsStale() {
+				removed = append(removed, p.Clone(true))
+			}
+		}
+		s.notifyAdjInWithdrawWatcher(peer, removed)
+	}
+	s.propagateUpdate(peer, peer.adjRibIn.DropStale(families))
+}
+
+func (s *BgpServer) markLLGRStale(peer *peer, families []bgp.Family) {
+	if s.isWatched(watchEventTypeAdjInWithdraw) {
+		var removed []*table.Path
+		for _, p := range peer.adjRibIn.PathList(families, false) {
+			if p.HasNoLLGR() {
+				removed = append(removed, p.Clone(true))
+			}
+		}
+		s.notifyAdjInWithdrawWatcher(peer, removed)
+	}
+	s.propagateUpdate(peer, peer.markLLGRStale(families))
+}
+
+// startLLGR advances only families still in their GR period. The pending
+// family's timer identity prevents a queued expiry from undoing a later EOR.
+func (s *BgpServer) startLLGR(peer *peer, families []bgp.Family) {
+	started := time.Now()
+	conf := peer.fsm.pConf.ReadOnly()
+	for _, af := range conf.AfiSafis {
+		family := af.State.Family
+		if !slices.Contains(families, family) || !af.MpGracefulRestart.State.Running {
+			continue
+		}
+		if !af.LongLivedGracefulRestart.State.Enabled {
+			s.dropAdjRIBIn(peer, []bgp.Family{family})
+			peer.finishRestartFamilies([]bgp.Family{family})
+			continue
+		}
+		end, duration := peer.startLLGRTimer(family)
+		if end == nil {
+			continue
+		}
+		if duration == 0 {
+			peer.expireLLGRTimer(family, end)
+			s.dropStaleAdjRIBIn(peer, []bgp.Family{family})
+			continue
+		}
+		// Propagating communities for a large table must not extend LLST.
+		timer := time.NewTimer(time.Until(started.Add(duration)))
+		s.markLLGRStale(peer, []bgp.Family{family})
+		go func() {
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+				_ = s.mgmtOperation(func() error {
+					if s.neighborMap[peer.fsm.pConf.ReadOnly().State.NeighborAddress] == peer && peer.expireLLGRTimer(family, end) {
+						s.dropStaleAdjRIBIn(peer, []bgp.Family{family})
+					}
+					return nil
+				}, false)
+			case <-end:
+			}
+		}()
+	}
+}
+
 func (s *BgpServer) propagateUpdate(peer *peer, pathList []*table.Path) {
 	rs := peer != nil && peer.isRouteServerClient()
 	vrf := false
@@ -1908,7 +1977,15 @@ func (s *BgpServer) handleFSMMessage(peer *peer, e *fsmMsg) {
 
 				gracefulFamilies, dropFamilies = peer.forwardingPreservedFamilies()
 				s.propagateUpdate(peer, peer.StaleAll(gracefulFamilies))
+				// A second reset during LLGR does not start a new GR period.
+				// Refreshed routes join the existing LLGR deadline immediately.
+				for _, af := range conf.AfiSafis {
+					if af.LongLivedGracefulRestart.State.Running && slices.Contains(gracefulFamilies, af.State.Family) {
+						s.markLLGRStale(peer, []bgp.Family{af.State.Family})
+					}
+				}
 			} else {
+				peer.stopPeerRestarting()
 				dropFamilies = peer.configuredRFlist()
 			}
 
@@ -1916,7 +1993,9 @@ func (s *BgpServer) handleFSMMessage(peer *peer, e *fsmMsg) {
 			peer.fsm.lock.Lock()
 			conf = peer.fsm.pConf.ReadCopy()
 			for i, af := range conf.AfiSafis {
-				if slices.Contains(gracefulFamilies, af.State.Family) {
+				if af.LongLivedGracefulRestart.State.PeerRestartTimerExpired {
+					dropFamilies = append(dropFamilies, af.State.Family)
+				} else if slices.Contains(gracefulFamilies, af.State.Family) && !af.LongLivedGracefulRestart.State.Running {
 					conf.AfiSafis[i].MpGracefulRestart.State.Running = true
 				}
 				conf.AfiSafis[i].MpGracefulRestart.State.EndOfRibReceived = false
@@ -1932,6 +2011,18 @@ func (s *BgpServer) handleFSMMessage(peer *peer, e *fsmMsg) {
 			s.resetAdvertisedRoutes(peer)
 			s.dropAdjRIBIn(peer, dropFamilies)
 
+			// RFC 9494: an omitted GR family or Restart Time zero skips GR
+			// for that family, while retaining its independent LLGR period.
+			if graceful && conf.GracefulRestart.State.LongLivedEnabled {
+				var immediate []bgp.Family
+				for _, af := range conf.AfiSafis {
+					if !af.MpGracefulRestart.State.Received || conf.GracefulRestart.State.PeerRestartTime == 0 {
+						immediate = append(immediate, af.State.Family)
+					}
+				}
+				s.startLLGR(peer, immediate)
+			}
+
 			if conf.Config.PeerAs == 0 {
 				peer.fsm.lock.Lock()
 				conf = peer.fsm.pConf.ReadCopy()
@@ -1944,68 +2035,16 @@ func (s *BgpServer) handleFSMMessage(peer *peer, e *fsmMsg) {
 				needStopNeighbor = true
 				return
 			}
-		} else if nextStateIdle {
+		} else if nextStateIdle && slices.Contains([]fsmStateReasonType{fsmAdminDown, fsmAdminReset, fsmHardReset}, e.StateReason.Type) {
+			// Explicit resets terminate recovery even when the TCP session was
+			// already down. They must not leave retained routes or timers behind.
+			peer.stopPeerRestarting()
+			s.dropAdjRIBIn(peer, peer.configuredRFlist())
+		} else if nextStateIdle && e.StateReason.Type == fsmRestartTimerExpired {
 			conf := peer.fsm.pConf.ReadOnly()
 			longLivedEnabled := conf.GracefulRestart.State.LongLivedEnabled
-			longLivedRunning := peer.longLivedRunning.Load()
-			// We must not restart LLGR timer until we have syncronized with
-			// the peer. Routes also need to be marked wit LLGR comm just once.
-			// https://datatracker.ietf.org/doc/html/rfc9494#session_resetsnever
-			if longLivedEnabled && !longLivedRunning {
-				peer.longLivedRunning.Store(true)
-				llgr, no_llgr := peer.llgrFamilies()
-
-				s.dropAdjRIBIn(peer, no_llgr)
-
-				// attach LLGR_STALE community to paths in peer's adj-rib-in
-				// paths with NO_LLGR are deleted
-				pathList := peer.markLLGRStale(llgr)
-
-				// calculate again
-				// wheh path with LLGR_STALE chosen as best,
-				// peer which doesn't support LLGR will drop the path
-				// if it is in adj-rib-out, do withdrawal
-				s.propagateUpdate(peer, pathList)
-
-				for _, f := range llgr {
-					endCh := make(chan struct{})
-					peer.fsm.lock.Lock()
-					peer.llgrEndChs = append(peer.llgrEndChs, endCh)
-					peer.fsm.lock.Unlock()
-					go func(family bgp.Family, endCh chan struct{}) {
-						peer.llgrRestartTimerStarted(family)
-						t := peer.llgrRestartTime(family)
-						timer := time.NewTimer(time.Second * time.Duration(t))
-
-						peer.fsm.logger.Info("LLGR restart timer started", slog.String("Family", family.String()), slog.Any("Duration", t))
-
-						select {
-						case <-timer.C:
-							err := s.mgmtOperation(func() error {
-								peer.fsm.logger.Info("LLGR restart timer expired", slog.String("Family", family.String()), slog.Any("Duration", t))
-
-								s.dropAdjRIBIn(peer, []bgp.Family{family})
-
-								// when all llgr restart timer expired, stop PeerRestarting
-								if peer.llgrRestartTimerExpired(family) {
-									peer.stopPeerRestarting()
-								}
-								return nil
-							}, false)
-							if err != nil {
-								// this would not happen, but handle the error just in case
-								// the above operation changes in the future
-								peer.fsm.logger.Error("LLGR restart timer expired but failed to propagate update",
-									slog.String("Family", family.String()),
-									slog.Any("Duration", t))
-							}
-						case <-endCh:
-							peer.fsm.logger.Info("LLGR restart timer stopped",
-								slog.String("Family", family.String()),
-								slog.Any("Duration", t))
-						}
-					}(f, endCh)
-				}
+			if longLivedEnabled {
+				s.startLLGR(peer, peer.configuredRFlist())
 			} else if !longLivedEnabled {
 				// RFC 4724 4.2
 				// If the session does not get re-established within the "Restart Time"
@@ -2046,6 +2085,12 @@ func (s *BgpServer) handleFSMMessage(peer *peer, e *fsmMsg) {
 		drainChannel(peer.fsm.notification)
 
 		if nextState == bgp.BGP_FSM_ESTABLISHED {
+			drop := peer.unpreservedRestartFamilies()
+			s.dropAdjRIBIn(peer, drop)
+			peer.finishRestartFamilies(drop)
+			if len(drop) == len(peer.configuredRFlist()) {
+				peer.stopPeerRestarting()
+			}
 			conf := peer.fsm.pConf.ReadOnly()
 			// An explicit source already has its session and is left alone. An
 			// inferred source is kept across reconnects; the BFD server replaces
@@ -2285,18 +2330,9 @@ func (s *BgpServer) handleFSMMessage(peer *peer, e *fsmMsg) {
 				conf := peer.fsm.pConf.ReadOnly()
 				peerRestarting := conf.GracefulRestart.State.PeerRestarting
 				if peerRestarting {
-					// EOR completes one family even when another is still syncing.
-					if s.isWatched(watchEventTypeAdjInWithdraw) {
-						var removed []*table.Path
-						for _, p := range peer.adjRibIn.PathList(eor, false) {
-							if p.IsStale() {
-								removed = append(removed, p.Clone(true))
-							}
-						}
-						s.notifyAdjInWithdrawWatcher(peer, removed)
-					}
-					pathList := peer.adjRibIn.DropStale(eor)
-					s.propagateUpdate(peer, pathList)
+					// Complete timers per family before publishing its EOR.
+					s.dropStaleAdjRIBIn(peer, eor)
+					peer.finishRestartFamilies(eor)
 					if peer.receivedAllEOR() {
 						peer.stopPeerRestarting()
 					}

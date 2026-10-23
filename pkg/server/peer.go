@@ -129,8 +129,7 @@ type peer struct {
 	advertisedCount sync.Map
 	// map[table.PathLocalKey]struct{}
 	sendMaxPathFiltered sync.Map
-	llgrEndChs          []chan struct{} // protected by fsm.lock
-	longLivedRunning    atomic.Bool
+	llgrTimers          map[bgp.Family]chan struct{} // protected by fsm.lock
 	// Route Target Membership handler after import policy (for constrained VPN distribution).
 	rtmHandler *table.RouteTargetMembershipHandler
 	// Route refresh in progress, during an established session or route refresh, this need to be atomic to avoid out of order updates
@@ -435,11 +434,11 @@ func (peer *peer) setRtcEORWait(waiting bool) {
 }
 
 // allNegotiatedEORReceived reports whether EOR has been received for all
-// negotiated GR address families. This applies the post-ESTABLISHED check
+// negotiated GR/LLGR address families. This applies the post-ESTABLISHED check
 // based on State (negotiated capabilities), not Config.
 func (peer *peer) allNegotiatedEORReceived() bool {
 	for _, a := range peer.fsm.pConf.ReadOnly().AfiSafis {
-		if s := a.MpGracefulRestart.State; s.Enabled && s.Received && !s.EndOfRibReceived {
+		if s := a.MpGracefulRestart.State; (s.Enabled && s.Received || a.LongLivedGracefulRestart.State.Enabled && a.LongLivedGracefulRestart.State.Received) && !s.EndOfRibReceived {
 			return false
 		}
 	}
@@ -526,7 +525,7 @@ func (peer *peer) forwardingPreservedFamilies() ([]bgp.Family, []bgp.Family) {
 	conf := peer.fsm.pConf.ReadOnly()
 	list := []bgp.Family{}
 	for _, a := range conf.AfiSafis {
-		if s := a.MpGracefulRestart.State; s.Enabled && s.Received {
+		if s := a.MpGracefulRestart.State; s.Enabled && s.Received || a.LongLivedGracefulRestart.State.Enabled {
 			list = append(list, a.State.Family)
 		}
 	}
@@ -574,47 +573,98 @@ func (peer *peer) isLLGREnabledFamily(family bgp.Family) bool {
 	return slices.Contains(fs, family)
 }
 
-func (peer *peer) llgrRestartTime(family bgp.Family) uint32 {
-	conf := peer.fsm.pConf.ReadOnly()
-	for _, a := range conf.AfiSafis {
-		if a.State.Family == family {
-			return a.LongLivedGracefulRestart.State.PeerRestartTime
-		}
-	}
-	return 0
-}
-
-func (peer *peer) llgrRestartTimerStarted(family bgp.Family) {
+// startLLGRTimer records the active recovery before launching its timer worker.
+// Reconnection does not start it again; synchronization completes the family.
+func (peer *peer) startLLGRTimer(family bgp.Family) (chan struct{}, time.Duration) {
 	peer.fsm.lock.Lock()
 	defer peer.fsm.lock.Unlock()
-
 	conf := peer.fsm.pConf.ReadCopy()
 	for i, a := range conf.AfiSafis {
 		if a.State.Family == family {
+			if a.LongLivedGracefulRestart.State.Running || a.LongLivedGracefulRestart.State.PeerRestartTimerExpired || !a.MpGracefulRestart.State.Running {
+				return nil, 0
+			}
+			if peer.llgrTimers == nil {
+				peer.llgrTimers = make(map[bgp.Family]chan struct{})
+			}
+			end := make(chan struct{})
+			peer.llgrTimers[family] = end
 			conf.AfiSafis[i].MpGracefulRestart.State.Running = false
 			conf.AfiSafis[i].LongLivedGracefulRestart.State.Running = true
+			peer.fsm.pConf.Update(&conf)
+			return end, time.Duration(a.LongLivedGracefulRestart.State.PeerRestartTime) * time.Second
 		}
 	}
-	peer.fsm.pConf.Update(&conf)
+	return nil, 0
 }
 
-func (peer *peer) llgrRestartTimerExpired(family bgp.Family) bool {
+func (peer *peer) expireLLGRTimer(family bgp.Family, end chan struct{}) bool {
 	peer.fsm.lock.Lock()
 	defer peer.fsm.lock.Unlock()
-
-	all := true
+	if peer.llgrTimers[family] != end {
+		return false
+	}
+	delete(peer.llgrTimers, family)
 	conf := peer.fsm.pConf.ReadCopy()
 	for i, a := range conf.AfiSafis {
 		if a.State.Family == family {
 			conf.AfiSafis[i].LongLivedGracefulRestart.State.PeerRestartTimerExpired = true
-		}
-		s := a.LongLivedGracefulRestart.State
-		if s.Received && !s.PeerRestartTimerExpired {
-			all = false
+			conf.AfiSafis[i].LongLivedGracefulRestart.State.Running = false
 		}
 	}
 	peer.fsm.pConf.Update(&conf)
-	return all
+	return true
+}
+
+func (peer *peer) finishRestartFamilies(families []bgp.Family) {
+	peer.fsm.lock.Lock()
+	defer peer.fsm.lock.Unlock()
+	conf := peer.fsm.pConf.ReadCopy()
+	for i, a := range conf.AfiSafis {
+		if slices.Contains(families, a.State.Family) {
+			conf.AfiSafis[i].MpGracefulRestart.State.Running = false
+			conf.AfiSafis[i].LongLivedGracefulRestart.State.Running = false
+			conf.AfiSafis[i].LongLivedGracefulRestart.State.PeerRestartTimerExpired = false
+			if end := peer.llgrTimers[a.State.Family]; end != nil {
+				close(end)
+				delete(peer.llgrTimers, a.State.Family)
+			}
+		}
+	}
+	peer.fsm.pConf.Update(&conf)
+}
+
+// unpreservedRestartFamilies reconciles retained routes with the new OPEN.
+// During LLGR, its own F bit governs retention, independently of the GR F bit.
+func (peer *peer) unpreservedRestartFamilies() []bgp.Family {
+	peer.fsm.lock.Lock()
+	defer peer.fsm.lock.Unlock()
+	conf := peer.fsm.pConf.ReadOnly()
+	if !conf.GracefulRestart.State.PeerRestarting {
+		return nil
+	}
+	gr, llgr := make(map[bgp.Family]bool), make(map[bgp.Family]bool)
+	for _, c := range peer.fsm.capMap[bgp.BGP_CAP_GRACEFUL_RESTART] {
+		for _, tuple := range c.(*bgp.CapGracefulRestart).Tuples {
+			gr[bgp.NewFamily(tuple.AFI, tuple.SAFI)] = tuple.Flags&0x80 != 0
+		}
+	}
+	for _, c := range peer.fsm.capMap[bgp.BGP_CAP_LONG_LIVED_GRACEFUL_RESTART] {
+		for _, tuple := range c.(*bgp.CapLongLivedGracefulRestart).Tuples {
+			llgr[bgp.NewFamily(tuple.AFI, tuple.SAFI)] = tuple.Flags&0x80 != 0
+		}
+	}
+	var drop []bgp.Family
+	for _, a := range conf.AfiSafis {
+		preserved := conf.GracefulRestart.State.Enabled && a.MpGracefulRestart.State.Received && gr[a.State.Family]
+		if a.LongLivedGracefulRestart.State.Running || a.LongLivedGracefulRestart.State.PeerRestartTimerExpired {
+			preserved = conf.GracefulRestart.State.LongLivedEnabled && a.LongLivedGracefulRestart.State.Received && llgr[a.State.Family]
+		}
+		if !preserved {
+			drop = append(drop, a.State.Family)
+		}
+	}
+	return drop
 }
 
 func (peer *peer) markLLGRStale(fs []bgp.Family) []*table.Path {
@@ -639,16 +689,15 @@ func (peer *peer) stopPeerRestarting() {
 	for i := range conf.AfiSafis {
 		conf.AfiSafis[i].MpGracefulRestart.State.Running = false
 		conf.AfiSafis[i].LongLivedGracefulRestart.State.Running = false
+		conf.AfiSafis[i].LongLivedGracefulRestart.State.PeerRestartTimerExpired = false
 	}
 	peer.fsm.pConf.Update(&conf)
 
-	for _, ch := range peer.llgrEndChs {
+	for _, ch := range peer.llgrTimers {
 		close(ch)
 	}
-	peer.llgrEndChs = make([]chan struct{}, 0)
+	peer.llgrTimers = nil
 	peer.fsm.lock.Unlock()
-
-	peer.longLivedRunning.Store(false)
 }
 
 // Returns true if the peer is interested in this path according to BGP RTC

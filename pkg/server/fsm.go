@@ -870,6 +870,19 @@ func (fsm *fsm) stateChange(nextState bgp.FSMState, reason *fsmStateReason) {
 		}
 		conf.Timers.State.KeepaliveInterval = keepalive
 
+		// Negotiated capabilities belong to this OPEN, not the previous session.
+		conf.GracefulRestart.State.Enabled = false
+		conf.GracefulRestart.State.LongLivedEnabled = false
+		conf.GracefulRestart.State.NotificationEnabled = false
+		conf.GracefulRestart.State.PeerRestartTime = 0
+		for i := range conf.AfiSafis {
+			conf.AfiSafis[i].MpGracefulRestart.State.Enabled = false
+			conf.AfiSafis[i].MpGracefulRestart.State.Received = false
+			conf.AfiSafis[i].LongLivedGracefulRestart.State.Enabled = false
+			conf.AfiSafis[i].LongLivedGracefulRestart.State.Received = false
+			conf.AfiSafis[i].LongLivedGracefulRestart.State.PeerRestartTime = 0
+		}
+
 		gr, ok := fsm.capMap[bgp.BGP_CAP_GRACEFUL_RESTART]
 		if conf.GracefulRestart.Config.Enabled && ok {
 			state := &conf.GracefulRestart.State
@@ -880,7 +893,7 @@ func (fsm *fsm) stateChange(nextState bgp.FSMState, reason *fsmStateReason) {
 			for _, t := range cap.Tuples {
 				n := bgp.AddressFamilyNameMap[bgp.NewFamily(t.AFI, t.SAFI)]
 				for i, a := range conf.AfiSafis {
-					if string(a.Config.AfiSafiName) == n {
+					if _, negotiated := rfmap[a.State.Family]; negotiated && string(a.Config.AfiSafiName) == n {
 						conf.AfiSafis[i].MpGracefulRestart.State.Enabled = true
 						conf.AfiSafis[i].MpGracefulRestart.State.Received = true
 						break
@@ -914,13 +927,13 @@ func (fsm *fsm) stateChange(nextState bgp.FSMState, reason *fsmStateReason) {
 			}
 		}
 		llgr, ok2 := fsm.capMap[bgp.BGP_CAP_LONG_LIVED_GRACEFUL_RESTART]
-		if conf.GracefulRestart.Config.LongLivedEnabled && ok && ok2 {
+		if conf.GracefulRestart.Config.LongLivedEnabled && conf.GracefulRestart.State.Enabled && ok2 {
 			conf.GracefulRestart.State.LongLivedEnabled = true
 			cap := llgr[len(llgr)-1].(*bgp.CapLongLivedGracefulRestart)
 			for _, t := range cap.Tuples {
 				n := bgp.AddressFamilyNameMap[bgp.NewFamily(t.AFI, t.SAFI)]
 				for i, a := range conf.AfiSafis {
-					if string(a.Config.AfiSafiName) == n {
+					if _, negotiated := rfmap[a.State.Family]; negotiated && string(a.Config.AfiSafiName) == n {
 						conf.AfiSafis[i].LongLivedGracefulRestart.State.Enabled = true
 						conf.AfiSafis[i].LongLivedGracefulRestart.State.Received = true
 						conf.AfiSafis[i].LongLivedGracefulRestart.State.PeerRestartTime = t.RestartTime
@@ -1001,6 +1014,7 @@ func (fsm *fsm) stop() {
 type fsmCallback func(*fsmMsg)
 
 type fsmHandler struct {
+	restartConn   net.Conn // owned by the FSM loop until active accepts it
 	fsm           *fsm
 	allowLoopback bool
 	outgoing      *channels.InfiniteChannel
@@ -1030,6 +1044,13 @@ func nextIdleHoldTime(backoff, afterReset float64, reason *fsmStateReason) (floa
 
 func (h *fsmHandler) idle(ctx context.Context) (bgp.FSMState, *fsmStateReason) {
 	fsm := h.fsm
+	if h.restartConn != nil {
+		if ctx.Err() == nil && fsm.adminState.Load() == adminStateUp {
+			return bgp.BGP_FSM_ACTIVE, newfsmStateReason(fsmNewConnection, nil, nil)
+		}
+		h.restartConn.Close()
+		h.restartConn = nil
+	}
 
 	idleHoldTimer := time.NewTimer(time.Second * time.Duration(fsm.idleHoldTime))
 
@@ -1176,8 +1197,38 @@ func (h *fsmHandler) connectLoop(ctx context.Context, delay time.Duration) net.C
 	}
 }
 
+func (h *fsmHandler) acceptIncoming(conn net.Conn) (bgp.FSMState, *fsmStateReason) {
+	fsm := h.fsm
+
+	fsm.lock.Lock()
+	fsm.conn = conn
+	initializeConn(fsm, conn)
+	// we don't implement delayed open timer so move to opensent right
+	// away.
+	conf := fsm.pConf.ReadCopy()
+	m := buildopen(fsm.gConf, &conf)
+	fsm.pConf.Update(&conf)
+	fsm.lock.Unlock()
+
+	b, _ := m.Serialize()
+	conn.SetWriteDeadline(time.Now().Add(time.Second))
+	_, err := conn.Write(b)
+	if err == nil {
+		fsm.bgpMessageStateUpdate(m.Header.Type, false)
+		return bgp.BGP_FSM_OPENSENT, newfsmStateReason(fsmNewConnection, nil, nil)
+	}
+	conn.Close()
+	return bgp.BGP_FSM_IDLE, newfsmStateReason(fsmWriteFailed, nil, []byte(err.Error()))
+}
+
 func (h *fsmHandler) active(ctx context.Context) (bgp.FSMState, *fsmStateReason) {
 	fsm := h.fsm
+
+	if h.restartConn != nil {
+		conn := h.restartConn
+		h.restartConn = nil
+		return h.acceptIncoming(conn)
+	}
 
 	if fsm.outgoingConnMgr == nil || fsm.outgoingConnMgr.ctx.Err() != nil {
 		fsm.logger.Info("starting outgoing connection manager")
@@ -1193,24 +1244,7 @@ func (h *fsmHandler) active(ctx context.Context) (bgp.FSMState, *fsmStateReason)
 				break
 			}
 
-			fsm.lock.Lock()
-			fsm.conn = conn
-			initializeConn(fsm, conn)
-			// we don't implement delayed open timer so move to opensent right
-			// away.
-			conf := fsm.pConf.ReadCopy()
-			m := buildopen(fsm.gConf, &conf)
-			fsm.pConf.Update(&conf)
-			fsm.lock.Unlock()
-
-			b, _ := m.Serialize()
-			conn.SetWriteDeadline(time.Now().Add(time.Second))
-			_, err := conn.Write(b)
-			if err == nil {
-				fsm.bgpMessageStateUpdate(m.Header.Type, false)
-				return bgp.BGP_FSM_OPENSENT, newfsmStateReason(fsmNewConnection, nil, nil)
-			}
-			return bgp.BGP_FSM_IDLE, newfsmStateReason(fsmWriteFailed, nil, []byte(err.Error()))
+			return h.acceptIncoming(conn)
 		case result := <-fsm.outgoingConnCh:
 			b, _ := bgp.NewBGPKeepAliveMessage().Serialize()
 			result.conn.SetWriteDeadline(time.Now().Add(time.Second))
@@ -2374,6 +2408,16 @@ func (h *fsmHandler) established(ctx context.Context) (bgp.FSMState, *fsmStateRe
 			if !ok {
 				break
 			}
+			conf := fsm.pConf.ReadOnly()
+			if conf.GracefulRestart.State.Enabled {
+				// RFC 4724 4.2: a new connection from a GR peer signals a
+				// restart even when the old TCP connection has not failed yet.
+				h.restartConn = conn
+				fsm.conn.Close()
+				fsm.gracefulRestartTimer.Reset(time.Duration(conf.GracefulRestart.State.PeerRestartTime) * time.Second)
+				return bgp.BGP_FSM_IDLE, newfsmStateReason(fsmGracefulRestart, nil, nil)
+			}
+
 			conn.Close()
 			fsm.logger.Warn("Closed an accepted connection", slog.String("State", fsm.state.String()))
 		case err := <-reasonCh:
@@ -2535,6 +2579,11 @@ func (h *fsmHandler) loop(ctx context.Context, wg *sync.WaitGroup) {
 		h.callback(msg)
 		fsm.state.Store(nextState)
 		oldState = nextState
+	}
+
+	if h.restartConn != nil {
+		h.restartConn.Close()
+		h.restartConn = nil
 	}
 
 	select {
