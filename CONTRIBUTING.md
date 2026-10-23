@@ -110,7 +110,10 @@ This repository releases **n-gobgp** independently from osrg/gobgp. The initial
 fork version is `0.1.0-dev`; release tags use `v0.1.0`, `v0.1.1`, etc. A release
 is driven by readiness and validation, not the upstream monthly schedule. The
 Go module path, binary names and protobuf API remain compatible with GoBGP v4.
-The fork version does not describe an upstream API version.
+The fork version does not describe an upstream API version. Fork `v0.x` tags
+version the applications; they are not module releases for the retained `/v4`
+import path. Library users must pin a fork commit with a `replace` directive
+until a separate module/version migration is designed.
 
 `internal/pkg/version/version.go` is the source of truth for the fork version
 and the incorporated upstream base. `UpstreamCommit` is the full commit from
