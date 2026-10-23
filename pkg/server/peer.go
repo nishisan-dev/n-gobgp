@@ -138,8 +138,9 @@ type peer struct {
 	routeRefreshInProgress sync.RWMutex
 	// Refresh membership is independent of GR/LLGR stale flags. Only actual
 	// inbound UPDATEs clear entries, never import-policy re-evaluation.
-	refreshPending map[bgp.Family]map[table.PathLocalKey]struct{}
-	sentEOR        sync.Map // families whose EOR has been queued in this session
+	refreshPending   map[bgp.Family]map[table.PathLocalKey]struct{}
+	refreshDeadlines map[bgp.Family]*refreshDeadline // own FSM callback or dispatcher, under shared.mu
+	sentEOR          sync.Map                        // families whose EOR has been queued in this session
 	// deferralCancel stops the deferral timer of the current session.
 	// Protected by fsm.lock.
 	deferralCancel context.CancelFunc

@@ -41,7 +41,7 @@ func refreshTestPeer(t *testing.T, s *BgpServer, address string, asn uint32, mod
 	p.fsm.capMap = map[bgp.BGPCapabilityCode][]bgp.ParameterCapabilityInterface{bgp.BGP_CAP_ROUTE_REFRESH: {bgp.NewCapRouteRefresh()}, bgp.BGP_CAP_ENHANCED_ROUTE_REFRESH: {bgp.NewCapEnhancedRouteRefresh()}}
 	require.NoError(t, s.mgmtOperation(func() error { s.neighborMap[netip.MustParseAddr(address)] = p; return nil }, true))
 	t.Cleanup(func() {
-		require.NoError(t, s.mgmtOperation(func() error { delete(s.neighborMap, netip.MustParseAddr(address)); return nil }, false))
+		require.NoError(t, s.mgmtOperation(func() error { p.cancelRefresh(); delete(s.neighborMap, netip.MustParseAddr(address)); return nil }, false))
 		cleanInfiniteChannel(p.fsm.outgoingCh)
 	})
 	return p

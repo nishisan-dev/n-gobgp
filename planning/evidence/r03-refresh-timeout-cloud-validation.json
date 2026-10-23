@@ -1,0 +1,226 @@
+{
+  "status": "PASS",
+  "date_utc": "2026-10-23T19:59:26.490811+00:00",
+  "base_commit": "867033b4be362480e732525c540587fc68716c6e",
+  "branch": "codex/r03-refresh-deadlines",
+  "issue": 19,
+  "source_archive_sha256": "43c4f4818484776fa8588f9bf6ed7923cae7ff0583ee7730eb1e6529ee194d48",
+  "build_input_manifest_sha256": "bb5745bf077ff1e6fb7013503a5f5ea31eb126761659c2d9e43eb910f4652d25",
+  "verified_identical_cloud_and_local_build_inputs": 284,
+  "changed_source_sha256": {
+    ".github/workflows/ci.yml": "faf920e953d6ab2beb82a54e9bce53ac52b4207600ba079d8a96481b19a9f8c8",
+    "cmd/gobgpd/main.go": "e906af63bf23b1187c25cd1452743e887b9d650d497dfc5361da6b5a74099593",
+    "docs/sources/graceful-restart.md": "a0e9fe0aa761dc567fd0004abb25fdecf5b558a438e1776f5451bcab7fb134bc",
+    "pkg/server/gr_startup_regression_test.go": "996aac6e8bf95328d78db2559e2a5fce7a96f0f2ab26ecfacba3a6b18d514833",
+    "pkg/server/peer.go": "bc566c107347437be0eccd0b43177487950ee62e0abe893fd1e18a2b830d1225",
+    "pkg/server/refresh_regression_test.go": "86291b7c9821524d6790bcdd370d9a13e0eeb82f0f729bfb5e55938001b71739",
+    "pkg/server/refresh_timeout.go": "ed5c3229694bd698a1f1021a5bc0bcd24b5db78814b94461fca56d7d4180dd41",
+    "pkg/server/refresh_timeout_lifecycle_test.go": "ce965b447fbd96b6d7a6af975e58dc55ed969f7aba26eee9523bc63e5780bd7e",
+    "pkg/server/refresh_timeout_regression_test.go": "40534dc3a6fc922cb628f5b0733b00cb2f7f2cc0ed405a70ccc025c3a4dd2d8c",
+    "pkg/server/server.go": "9e5effc800964c7ae0a9158875ad077ef31171bd636dfa94a165069c24e56a42",
+    "planning/roadmap-2026-10-23.md": "d8fcb0a67fdbcfa8501faedcaad468bb8d2503e552c02d1d3b6cb518ed0af9fc",
+    "test/integration/r03_refresh_timeout.py": "9d850d45146f54cb76a479fc9542032dc0c17e891476d0fcddc93880dcf94f29",
+    "test/integration/r03_rpki_vrf.py": "309994ac50ce991471ecbcf719be7e70a95c18c18d8145f8b89315c961cf8cec"
+  },
+  "cloud": {
+    "ssh": "root@157.173.116.3",
+    "workspace": "/var/tmp/ngobgp-refresh-timeout-20261023/final",
+    "architecture": "linux/amd64",
+    "go": "go1.27.3",
+    "go_base_image": "golang:1.27.3@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc",
+    "tooling_image": "ngobgp-startup-checks:20261023",
+    "regression_cpus": 4,
+    "regression_memory_bytes": 6442450944,
+    "network": "none",
+    "published_ports": [],
+    "privileged": false,
+    "tooling_image_id": "sha256:28ae9fb81a203a373b2b1ec838a3b7b723824eeab7f9322bf900b231d239d8ff"
+  },
+  "execution_restrictions": {
+    "manual_local_tests_run": false,
+    "old_lab_192_168_5_89_used": false,
+    "ci_runs_authorized": true
+  },
+  "baseline": {
+    "expected_exit_code": 1,
+    "expected_failing_tests": 2,
+    "injected_regression_test_sha256": "40534dc3a6fc922cb628f5b0733b00cb2f7f2cc0ed405a70ccc025c3a4dd2d8c",
+    "compatibility_shim_sha256": "e668b0493e4bc2adec14cbd67ff0d42e20c93274ff333c82427fa1d6a9d87d95",
+    "compatibility_shim": "The new regression test requires the new RouteRefreshStaleTime option. A test-only no-op option was supplied on the unchanged base so the tests could compile. This shim adds no deadline or cleanup logic and does not modify production files.",
+    "command": "go test -race ./pkg/server -run TestRefreshTimeout -count=1 -timeout=45s"
+  },
+  "validation": [
+    {
+      "command": "go test -race ./pkg/server -run TestRefreshTimeout -count=3 -timeout=90s",
+      "exit_code": 0,
+      "top_level_tests": 7,
+      "repetitions": 3
+    },
+    {
+      "command": "go test -race ./... -count=1 -timeout=240s",
+      "exit_code": 0,
+      "server_duration_seconds": 185.533
+    },
+    {
+      "command": "golangci-lint run ./...",
+      "exit_code": 0,
+      "issues": 0
+    },
+    {
+      "command": "go build -race -o /tmp/gobgpd ./cmd/gobgpd",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 test/integration/r03_rpki_vrf.py --gobgpd /tmp/gobgpd",
+      "exit_code": 0,
+      "cases": 3
+    },
+    {
+      "command": "python3 test/integration/r03_refresh_addpath.py --gobgpd /tmp/gobgpd",
+      "exit_code": 0,
+      "cases": 6
+    },
+    {
+      "command": "python3 test/integration/r03_gr_llgr.py --gobgpd /tmp/gobgpd",
+      "exit_code": 0,
+      "cases": 8
+    },
+    {
+      "command": "python3 test/integration/r03_refresh_timeout.py --gobgpd /tmp/gobgpd",
+      "exit_code": 0,
+      "cases": 5,
+      "negative_cli_value_rejected": true
+    },
+    {
+      "command": "markdownlint docs/sources/graceful-restart.md planning/roadmap-2026-10-23.md",
+      "exit_code": 0
+    },
+    {
+      "command": "actionlint .github/workflows/*.yml",
+      "exit_code": 0
+    },
+    {
+      "command": "tools/spell-check/scspell.sh",
+      "exit_code": 0
+    },
+    {
+      "command": "go list ./... >/dev/null; tools/grep_avoided_functions.sh",
+      "exit_code": 0,
+      "dependency_cache_mounted": true
+    }
+  ],
+  "protocol_results": [
+    {
+      "case": "rpki-import",
+      "result": "PASS"
+    },
+    {
+      "case": "rpki-export",
+      "result": "PASS"
+    },
+    {
+      "case": "vrf-nht",
+      "result": "PASS"
+    },
+    {
+      "case": "refresh-addpath",
+      "send-max": 1,
+      "enhanced": true,
+      "result": "PASS"
+    },
+    {
+      "case": "refresh-addpath",
+      "send-max": 2,
+      "enhanced": true,
+      "result": "PASS"
+    },
+    {
+      "case": "refresh-addpath",
+      "send-max": 1,
+      "enhanced": false,
+      "result": "PASS"
+    },
+    {
+      "case": "refresh-addpath",
+      "send-max": 2,
+      "enhanced": false,
+      "result": "PASS"
+    },
+    {
+      "case": "enhanced-refresh",
+      "result": "PASS"
+    },
+    {
+      "case": "gr-eor-family",
+      "result": "PASS"
+    },
+    {
+      "case": "gr-reconnect-preserve",
+      "result": "PASS"
+    },
+    {
+      "case": "gr-reconnect-clear-forwarding",
+      "result": "PASS"
+    },
+    {
+      "case": "gr-reconnect-withdraw-capability",
+      "result": "PASS"
+    },
+    {
+      "case": "llgr-eor",
+      "result": "PASS"
+    },
+    {
+      "case": "llgr-expiry",
+      "result": "PASS"
+    },
+    {
+      "case": "llgr-clear-forwarding",
+      "result": "PASS"
+    },
+    {
+      "case": "llgr-consecutive",
+      "result": "PASS"
+    },
+    {
+      "case": "llgr-llgr-only",
+      "result": "PASS"
+    },
+    {
+      "case": "refresh-timeout",
+      "repeated-borr": false,
+      "disabled": false,
+      "result": "PASS"
+    },
+    {
+      "case": "refresh-timeout",
+      "repeated-borr": true,
+      "disabled": false,
+      "result": "PASS"
+    },
+    {
+      "case": "refresh-timeout",
+      "repeated-borr": false,
+      "disabled": true,
+      "result": "PASS"
+    },
+    {
+      "case": "refresh-timeout-disconnect",
+      "llgr": false,
+      "result": "PASS"
+    },
+    {
+      "case": "refresh-timeout-disconnect",
+      "llgr": true,
+      "result": "PASS"
+    }
+  ],
+  "notes": [
+    "The retention bound is optional under RFC 7313. Defaults are now finite (300 seconds) and configurable at server construction; zero restores indefinite retention until EoRR.",
+    "Repeated BoRR snapshots current stale membership again without extending an unfinished cycle. Late unpaired EoRR is ignored; the wire carries no cycle ID for identifying an old EoRR after a new BoRR.",
+    "No deadline is inferred for waiting for the first BoRR or for legacy refresh without markers. No artificial EOR/EoRR or Kafka completion event is emitted.",
+    "Spelling passed. The first avoided-functions invocation lacked module-cache mounts, so go list reported offline dependency errors masked by the existing wrapper. It was rerun successfully with caches and an explicit go list preflight; no external network was enabled.",
+    "Kafka broker integration is validated by the required CI job; default cloud Go tests do not enable external broker integration tests.",
+    "Log whitespace is normalized for repository formatting. Capacity, repeated-BoRR cost and independent interoperability remain R03 backlog."
+  ]
+}

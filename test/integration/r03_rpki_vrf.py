@@ -240,12 +240,12 @@ passive-mode = true
 
 
 @contextlib.contextmanager
-def daemon(binary, config):
+def daemon(binary, config, extra_args=()):
     with tempfile.TemporaryDirectory(prefix='gobgp-r03-') as directory:
         root = Path(directory)
         (root/'config.toml').write_text(config)
         with (root/'daemon.log').open('w+') as log:
-            process = subprocess.Popen([binary, '-f', str(root/'config.toml'), '--api-hosts=127.0.0.1:50051', '-l', 'warn'], stdout=log, stderr=log)
+            process = subprocess.Popen([binary, '-f', str(root/'config.toml'), '--api-hosts=127.0.0.1:50051', '-l', 'warn', *extra_args], stdout=log, stderr=log)
             try:
                 yield
             except BaseException:

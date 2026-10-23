@@ -67,6 +67,7 @@ func main() {
 		CPUs              int     `long:"cpus" description:"specify the number of CPUs to be used"`
 		GrpcHosts         string  `long:"api-hosts" description:"specify the hosts that gobgpd listens on" default:":50051"`
 		GracefulRestart   bool    `short:"r" long:"graceful-restart" description:"flag restart-state in graceful-restart capability"`
+		RefreshStaleTime  uint32  `long:"route-refresh-stale-time" description:"maximum stale retention in seconds for incomplete Enhanced Route Refresh (0 disables)" default:"300"`
 		Dry               bool    `short:"d" long:"dry-run" description:"check configuration"`
 		PProfHost         string  `long:"pprof-host" description:"specify the host that gobgpd listens on for pprof and metrics" default:"localhost:6060"`
 		PProfDisable      bool    `long:"pprof-disable" description:"disable pprof profiling"`
@@ -234,6 +235,7 @@ func main() {
 		server.GrpcListenAddress(opts.GrpcHosts),
 		server.GrpcOption(grpcOpts),
 		server.LoggerOption(logger, lvl),
+		server.RouteRefreshStaleTime(time.Duration(opts.RefreshStaleTime)*time.Second),
 		server.TimingHookOption(fsmTimingCollector))
 	prometheus.MustRegister(metrics.NewBgpCollector(bgpServer))
 	prometheus.MustRegister(fsmTimingCollector)

@@ -340,3 +340,53 @@ capture generations are unchanged. The default request keeps immediate
 activation for existing clients. See
 [fork issue #16](https://github.com/nishisan-dev/n-gobgp/issues/16) and
 [upstream issue #3433](https://github.com/osrg/gobgp/issues/3433).
+
+## Incomplete Enhanced Route Refresh in n-gobgp
+
+An accepted BoRR starts an independent retention deadline for that peer and
+address family. The default is **300 seconds**. If EoRR never arrives, the
+server removes only input paths still omitted from the refresh, including
+rejected input. Ordinary UPDATEs clear pending membership by remote Path-ID;
+an import-policy replay does not. Other peers and families retain their input.
+The implementation uses the optional retention bound in
+[RFC 7313 section 4](https://www.rfc-editor.org/rfc/rfc7313.html#section-4).
+
+Configure the server-wide limit at daemon startup, in seconds:
+
+```shell
+gobgpd -f gobgpd.toml --route-refresh-stale-time=600
+```
+
+Embedded applications can set the duration when constructing the server:
+
+```go
+s := server.NewBgpServer(server.RouteRefreshStaleTime(10 * time.Minute))
+```
+
+The daemon accepts an unsigned 32-bit number of seconds. Zero disables this
+limit and restores retention until EoRR; non-positive durations disable it in
+the embedded option. Select a bound above the observed full-table refresh
+replay time. This setting applies to all peers, including dynamically created
+neighbors; each peer and family has its own deadline. It is fixed at server
+construction and is not a per-neighbor API configuration field.
+
+Every repeated BoRR marks the current input stale again, but does not extend
+the deadline of an unfinished cycle. Consequently, a path reannounced before
+the latest BoRR needs another UPDATE to remain fresh in that cycle. A later
+cycle after completion or expiration receives a new deadline. A timer callback
+already queued for an older cycle cannot expire the new one.
+
+EoRR cancels the corresponding timer. Session loss, peer deletion and shutdown
+cancel all timers belonging to that peer. In particular, the refresh deadline
+from a disconnected session cannot shorten subsequent GR or LLGR retention.
+An unpaired late EoRR has no effect. The wire protocol carries no cycle ID, so
+it cannot distinguish an old EoRR arriving after a new BoRR from completion of
+that new cycle.
+
+Expiration publishes the same real withdrawals to input, post-policy and best
+observers as EoRR cleanup, and logs the peer, family, limit and removal count.
+It keeps the session established and does not invent EOR, EoRR or a new Kafka
+completion event. This limit starts only after an accepted BoRR; it does not
+bound waiting for the first BoRR, legacy Route Refresh without demarcation,
+or initial GR EOR. Those operations retain their separate semantics. See
+[fork issue #19](https://github.com/nishisan-dev/n-gobgp/issues/19).
