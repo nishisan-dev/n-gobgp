@@ -1,0 +1,4 @@
+=== RUN   TestKafkaBrokerIntegration
+--- PASS: TestKafkaBrokerIntegration (1.31s)
+PASS
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka	2.439s

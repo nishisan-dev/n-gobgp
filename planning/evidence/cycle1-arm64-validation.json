@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-23",
+  "host": "192.168.5.89",
+  "architecture": "aarch64",
+  "docker_version": "29.9.0",
+  "base_commit": "d76b7b01adfbab8454486c69cfa6775a5e50ee6c",
+  "branch": "codex/as0-bfd-admindown",
+  "includes_uncommitted_changes": true,
+  "source_archive_sha256": "71578f2ba28ceb24d3a49e7f56392c2c7972aaf10d49a6b79bd65ed1904936ce",
+  "remote_workspace": "/var/tmp/ngobgp-cycle1-20261023",
+  "go_image": "golang:1.27.3",
+  "go_image_digest": "sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc",
+  "full_suite": {
+    "command": "go test -race -p 1 -timeout 300s ./...",
+    "exit_code": 0,
+    "cpus": 4,
+    "memory_gib": 6,
+    "gomaxprocs": 4,
+    "server_seconds": 170.034,
+    "log": "cycle1-arm64-full-tests.log"
+  },
+  "build": {
+    "command": "go build ./...",
+    "exit_code": 0
+  },
+  "kafka": {
+    "command": "go test -race -count=1 -timeout 90s -run ^TestKafkaBrokerIntegration$ -v ./pkg/sink/kafka",
+    "exit_code": 0,
+    "image": "apache/kafka:3.9.1",
+    "brokers": 2,
+    "published_ports": [],
+    "test_seconds": 1.31,
+    "log": "cycle1-arm64-kafka-tests.log"
+  },
+  "cleanup": {
+    "temporary_containers_removed": true,
+    "temporary_network_removed": true,
+    "existing_services_preserved": true
+  },
+  "limitations": [
+    "BGP/BFD tests use simulated transport; external router interoperability was not tested."
+  ]
+}
