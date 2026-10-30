@@ -10,9 +10,12 @@ if find "$state_dir" -mindepth 1 -maxdepth 1 -print -quit | read -r _; then
 fi
 state_dir=$(cd "$state_dir" && pwd)
 prefix="ngobgp-r04-$(date +%s)-$$"
-go_image=${R04_GO_IMAGE:-golang:1.27.3}
+go_image=${R04_GO_IMAGE:-golang:1.27.3@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc}
 frr_image=${R04_FRR_IMAGE:-quay.io/frrouting/frr:10.2.3@sha256:b48e58300fea8288a8ea0ce62c6f722945bb9dda532526fb9ef12f88278e4d66}
 kafka_image=${R04_KAFKA_IMAGE:-apache/kafka:3.9.1@sha256:4ceccc577f03f51f6af8dbfda55194d0d892f4fa7913ffbded567ce3895622ed}
+# The read-only checkout can belong to the CI runner rather than container root.
+# Trust only this mounted path, preserving Go VCS stamping without global changes.
+go_git_env=(-e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/work)
 mod_cache=${R04_MODULE_CACHE:-$state_dir/mod}
 build_cache=${R04_BUILD_CACHE:-$state_dir/build}
 mkdir -p "$mod_cache" "$build_cache" "$state_dir/frr"
@@ -27,7 +30,7 @@ cleanup() {
 trap cleanup EXIT
 # Preparation can use external network; the actual laboratory network is internal.
 for image in "$go_image" "$frr_image" "$kafka_image"; do docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image"; done
-docker run --rm -v "$repo:/work:ro" -v "$mod_cache:/go/pkg/mod" -w /work "$go_image" go mod download
+docker run --rm "${go_git_env[@]}" -v "$repo:/work:ro" -v "$mod_cache:/go/pkg/mod" -w /work "$go_image" go mod download
 docker image inspect "$go_image" "$frr_image" "$kafka_image" > "$state_dir/images.json"
 docker run --rm --entrypoint /bin/sh "$frr_image" -c 'cat /etc/frr/daemons' > "$state_dir/frr/daemons"
 sed -i -e 's/^bgpd=no/bgpd=yes/' -e 's/^zebra=no/zebra=yes/' "$state_dir/frr/daemons"
@@ -85,9 +88,9 @@ watch_broker() {
 watch_broker &
 watch_pid=$!
 set +e
-docker run --rm --name "$prefix-collector" --network "$prefix" --ip 10.231.84.4 --ip6 fd42:231:84::4 --cpus=3 --memory=6g \
+docker run --rm "${go_git_env[@]}" --name "$prefix-collector" --network "$prefix" --ip 10.231.84.4 --ip6 fd42:231:84::4 --cpus=3 --memory=6g \
  -e NGOBGP_R04_LAB=1 -e LAB_DIR=/lab -v "$state_dir:/lab" -v "$repo:/work:ro" -v "$mod_cache:/go/pkg/mod" -v "$build_cache:/root/.cache/go-build" -w /work \
- "$go_image" sh -c 'set -e; go build -race -o /tmp/kafka-reference-consumer ./cmd/kafka-reference-consumer; NGOBGP_R04_REFERENCE=/tmp/kafka-reference-consumer go test -v -race ./test/r04 -run TestR04ReflectorHotRecovery -count=1 -timeout=300s'  > "$state_dir/collector.log" 2>&1
+ "$go_image" sh -c 'set -e; go build -race -o /tmp/kafka-reference-consumer ./cmd/kafka-reference-consumer; go version -m /tmp/kafka-reference-consumer > /lab/reference-build.txt; NGOBGP_R04_REFERENCE=/tmp/kafka-reference-consumer go test -v -race ./test/r04 -run TestR04ReflectorHotRecovery -count=1 -timeout=300s'  > "$state_dir/collector.log" 2>&1
 result=$?
 set -e
 touch "$state_dir/finished"

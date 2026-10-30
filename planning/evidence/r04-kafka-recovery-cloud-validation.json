@@ -1,23 +1,35 @@
 {
   "status": "PASS",
-  "date_utc": "2026-10-30T06:21:12.284670+00:00",
+  "date_utc": "2026-10-30T06:36:33.573009+00:00",
   "base_commit": "5214c9513a1394c288517173a5553f3a0e2b806c",
   "branch": "codex/r04-kafka-capture-recovery",
   "issue": 21,
   "source_manifest": "r04-kafka-source-manifest.json",
-  "source_manifest_sha256": "982e9948097df8dd70813f3b83379395e536a71c16b1013b05493ddc96d5dd78",
+  "source_manifest_sha256": "d5571acd92bcc1585483f51c09e0731ba8c8c51dc87698ac28a1930613e4beca",
   "verified_identical_cloud_and_local_source_files": 389,
   "cloud": {
     "ssh": "root@157.173.116.3",
     "workspace": "/var/tmp/ngobgp-r04-20261030/iteration9",
-    "lab_evidence": "/var/tmp/ngobgp-r04-20261030/lab-attempt13",
+    "lab_evidence": "/var/tmp/ngobgp-r04-20261030/lab-ci-owner",
     "architecture": "linux/amd64",
     "go": "go1.27.3",
     "tooling_image": "ngobgp-startup-checks:20261023",
     "tooling_image_id": "sha256:28ae9fb81a203a373b2b1ec838a3b7b723824eeab7f9322bf900b231d239d8ff",
     "regression_cpus": 4,
     "regression_memory_bytes": 6442450944,
-    "regression_network": "none"
+    "regression_network": "none",
+    "ci_ownership_fixture": {
+      "workspace": "/var/tmp/ngobgp-r04-20261030/ci-checkout",
+      "checkout_uid": 1001,
+      "container_uid": 0,
+      "expected_untrusted_build_exit_code": 1,
+      "corrected_lab_exit_code": 0,
+      "trusted_git_path": "/work",
+      "global_git_configuration_modified": false,
+      "vcs_stamping_enabled": true,
+      "fixture_commit": "6c36a632b65055b3ccf7765e397c9bdb4bb195dc",
+      "note": "Disposable Git fixture used only to reproduce CI ownership; this is not a published fork commit."
+    }
   },
   "execution_restrictions": {
     "manual_local_tests_run": false,
@@ -176,9 +188,9 @@
       "exit_code": 0
     },
     {
-      "command": "R04_OUTPUT_DIR=.../lab-attempt13 bash test/r04/lab.sh",
+      "command": "R04_OUTPUT_DIR=.../lab-ci-owner bash test/r04/lab.sh",
       "exit_code": 0,
-      "go_test_duration_seconds": 118.82,
+      "go_test_duration_seconds": 105.66,
       "result": "r04-kafka-hot-lab.json"
     }
   ],
@@ -243,12 +255,14 @@
         "id": "sha256:4ceccc577f03f51f6af8dbfda55194d0d892f4fa7913ffbded567ce3895622ed"
       }
     ],
-    "resources_removed_after_validation": true
+    "resources_removed_after_validation": true,
+    "default_images_pinned": true
   },
   "notes": [
     "The archive has no .git directory; actionlint autodiscovery was replaced by explicit workflow paths. No workflow change was needed for that invocation.",
     "The saturation fixture exceeds writer batching; its larger admitted workload has a dedicated drain deadline. The loss detection deadline and production shutdown defaults were not relaxed.",
-    "Reference pending records retain only contract payload and headers, avoiding unrelated Kafka key/context buffers."
+    "Reference pending records retain only contract payload and headers, avoiding unrelated Kafka key/context buffers.",
+    "Initial PR CI job 123925078383 refused VCS access to a checkout owned by another UID. The cloud reproduction failed without the scoped trust and passed the complete lab with it; Go VCS metadata was retained. All default lab images are now pinned to tested digests."
   ],
   "remaining_limits": [
     "Native bootstrap allocation and interruptible preparation remain R05 work.",

@@ -31,6 +31,10 @@ otherwise the caches are inside the output directory. `R04_GO_IMAGE`,
 `R04_FRR_IMAGE` and `R04_KAFKA_IMAGE` can override images for a deliberate
 interoperability comparison; evidence records the actual image identities.
 
+All three default images are pinned to tested digests. The Go containers trust
+only the read-only `/work` checkout for Git metadata, including when the CI
+runner and container have different user IDs. Go VCS stamping remains enabled.
+
 Preparation may download images and Go modules. The actual lab network is
 Docker-internal, with IPv4 `10.231.84.0/24` and IPv6 `fd42:231:84::/64`.
 No host ports, host network, Docker socket or privileged containers are exposed.
@@ -74,7 +78,8 @@ not a production database or a Kafka authentication configuration example.
 ## Evidence and cleanup
 
 The script preserves `result.json`, collector/reference logs, FRR summary,
-generator acknowledgements, broker logs and image metadata. It automatically
+generator acknowledgements, broker logs, image metadata and reference binary
+build information. It automatically
 removes only its own containers and network, including on failure; evidence and
 dependency caches remain. An interrupted process that cannot execute its trap
 may require cleanup of resources bearing that run's `ngobgp-r04-` prefix.

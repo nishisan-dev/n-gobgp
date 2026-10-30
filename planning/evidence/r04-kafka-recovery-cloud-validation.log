@@ -94,3 +94,23 @@ OK
 Source verification:
 IDENTICAL_SOURCE_FILES 389
 MANIFEST_SHA256 982e9948097df8dd70813f3b83379395e536a71c16b1013b05493ddc96d5dd78
+
+CI checkout ownership reproduction (expected failure without trust):
+error obtaining VCS status: exit status 128
+	Use -buildvcs=false to disable VCS stamping.
+
+Corrected ownership fixture, full hot recovery lab:
+=== RUN   TestR04ReflectorHotRecovery
+    lab_test.go:270: initial convergence after 33.846545715s: {Contract:1 Generation:47e5928a-0940-4a99-890b-efe828c76904 Sinks:[{Sink:raw Generation:47e5928a-0940-4a99-890b-efe828c76904 State:ready Scope:entire-configured-sink Match:{EventTypes:{Include:[] Exclude:[]} Families:{Include:[] Exclude:[]} Sources:{Include:[adj-in] Exclude:[]} Peers:{Addresses:{Include:[] Exclude:[]} ASNs:{Include:[] Exclude:[]}}} SnapshotRequested:true StorageHealthy:true Publishing:true LossReasons:[] LossIncidents:0 LastSequence:5004 LastPublishedSequence:5004 SnapshotEndSequence:5004}]}
+    lab_test.go:282: broker restarted after 45.103021578s: {Contract:1 Generation:b5e54072-6f4b-49d2-bc17-6935b4b4bdc1 Sinks:[{Sink:raw Generation:b5e54072-6f4b-49d2-bc17-6935b4b4bdc1 State:capturing Scope:entire-configured-sink Match:{EventTypes:{Include:[] Exclude:[]} Families:{Include:[] Exclude:[]} Sources:{Include:[adj-in] Exclude:[]} Peers:{Addresses:{Include:[] Exclude:[]} ASNs:{Include:[] Exclude:[]}}} SnapshotRequested:true StorageHealthy:true Publishing:true LossReasons:[] LossIncidents:0 LastSequence:2503 LastPublishedSequence:0 SnapshotEndSequence:0}]}
+--- PASS: TestR04ReflectorHotRecovery (105.66s)
+PASS
+ok  	github.com/osrg/gobgp/v4/test/r04	106.785s
+
+Reference binary VCS metadata from the disposable fixture:
+	build	vcs.revision=6c36a632b65055b3ccf7765e397c9bdb4bb195dc
+	build	vcs.time=2026-10-30T06:29:08Z
+	build	vcs.modified=false
+Final source verification:
+IDENTICAL_SOURCE_FILES 389
+MANIFEST_SHA256 d5571acd92bcc1585483f51c09e0731ba8c8c51dc87698ac28a1930613e4beca

@@ -1,18 +1,18 @@
 {
   "bgp_established": true,
   "consumer_applied": 5004,
-  "consumer_generation": "a885c12c-650d-4477-a8ca-7409364fb022",
+  "consumer_generation": "b5e54072-6f4b-49d2-bc17-6935b4b4bdc1",
   "families": [
     "ipv4",
     "ipv6"
   ],
   "final_capture": {
     "contract": "1",
-    "generation": "a885c12c-650d-4477-a8ca-7409364fb022",
+    "generation": "b5e54072-6f4b-49d2-bc17-6935b4b4bdc1",
     "sinks": [
       {
         "sink": "raw",
-        "generation": "a885c12c-650d-4477-a8ca-7409364fb022",
+        "generation": "b5e54072-6f4b-49d2-bc17-6935b4b4bdc1",
         "state": "ready",
         "scope": "entire-configured-sink",
         "match": {
@@ -56,11 +56,11 @@
   "initial_digest": "453a1d6b32e18788002905c25ce98998662c28578e329694899d6535068a85b9",
   "initial_loss": {
     "contract": "1",
-    "generation": "c160f7e3-1915-488a-a020-e8b1f0a388a4",
+    "generation": "dff8c56d-b117-46e2-b9a9-f0fd60aaa982",
     "sinks": [
       {
         "sink": "raw",
-        "generation": "c160f7e3-1915-488a-a020-e8b1f0a388a4",
+        "generation": "dff8c56d-b117-46e2-b9a9-f0fd60aaa982",
         "state": "invalid",
         "scope": "entire-configured-sink",
         "match": {
