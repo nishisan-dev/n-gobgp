@@ -1,0 +1,112 @@
+{
+  "bgp_established": true,
+  "consumer_applied": 5004,
+  "consumer_generation": "b5e54072-6f4b-49d2-bc17-6935b4b4bdc1",
+  "families": [
+    "ipv4",
+    "ipv6"
+  ],
+  "final_capture": {
+    "contract": "1",
+    "generation": "b5e54072-6f4b-49d2-bc17-6935b4b4bdc1",
+    "sinks": [
+      {
+        "sink": "raw",
+        "generation": "b5e54072-6f4b-49d2-bc17-6935b4b4bdc1",
+        "state": "ready",
+        "scope": "entire-configured-sink",
+        "match": {
+          "EventTypes": {
+            "Include": null,
+            "Exclude": null
+          },
+          "Families": {
+            "Include": null,
+            "Exclude": null
+          },
+          "Sources": {
+            "Include": [
+              "adj-in"
+            ],
+            "Exclude": null
+          },
+          "Peers": {
+            "Addresses": {
+              "Include": null,
+              "Exclude": null
+            },
+            "ASNs": {
+              "Include": null,
+              "Exclude": null
+            }
+          }
+        },
+        "snapshot_requested": true,
+        "storage_healthy": true,
+        "publishing": true,
+        "loss_reasons": [],
+        "loss_incidents": 0,
+        "last_sequence": 5004,
+        "last_published_sequence": 5004,
+        "snapshot_end_sequence": 5004
+      }
+    ]
+  },
+  "final_digest": "cb5a8bbe63e34adf664c15695f4103ec825c904ac3eec8b3239dade1c67c4d96",
+  "initial_digest": "453a1d6b32e18788002905c25ce98998662c28578e329694899d6535068a85b9",
+  "initial_loss": {
+    "contract": "1",
+    "generation": "dff8c56d-b117-46e2-b9a9-f0fd60aaa982",
+    "sinks": [
+      {
+        "sink": "raw",
+        "generation": "dff8c56d-b117-46e2-b9a9-f0fd60aaa982",
+        "state": "invalid",
+        "scope": "entire-configured-sink",
+        "match": {
+          "EventTypes": {
+            "Include": null,
+            "Exclude": null
+          },
+          "Families": {
+            "Include": null,
+            "Exclude": null
+          },
+          "Sources": {
+            "Include": [
+              "adj-in"
+            ],
+            "Exclude": null
+          },
+          "Peers": {
+            "Addresses": {
+              "Include": null,
+              "Exclude": null
+            },
+            "ASNs": {
+              "Include": null,
+              "Exclude": null
+            }
+          }
+        },
+        "snapshot_requested": false,
+        "storage_healthy": true,
+        "publishing": true,
+        "loss_reasons": [
+          "ingress-overflow"
+        ],
+        "loss_incidents": 4,
+        "last_sequence": 0,
+        "last_published_sequence": 0,
+        "snapshot_end_sequence": 0
+      }
+    ]
+  },
+  "partitions_observed": 3,
+  "peer_flops_unchanged": true,
+  "peer_uptime_unchanged": true,
+  "peers": 2,
+  "reference_cli_verified": true,
+  "result": "PASS",
+  "routes": 5000
+}

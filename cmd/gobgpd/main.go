@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -71,6 +72,7 @@ func main() {
 		Dry               bool    `short:"d" long:"dry-run" description:"check configuration"`
 		PProfHost         string  `long:"pprof-host" description:"specify the host that gobgpd listens on for pprof and metrics" default:"localhost:6060"`
 		PProfDisable      bool    `long:"pprof-disable" description:"disable pprof profiling"`
+		KafkaControlHost  string  `long:"kafka-control-host" description:"optional trusted Kafka capture management listener (for example 127.0.0.1:50052)"`
 		MetricsPath       string  `long:"metrics-path" description:"specify path for prometheus metrics, empty value disables them" default:"/metrics"`
 		UseSdNotify       bool    `long:"sdnotify" description:"use sd_notify protocol"`
 		TLS               bool    `long:"tls" description:"enable TLS authentication for gRPC API"`
@@ -242,6 +244,10 @@ func main() {
 	go bgpServer.Serve()
 
 	if opts.ConfigFile == "" {
+		if opts.KafkaControlHost != "" {
+			logger.Error("Kafka capture management requires a configuration file")
+			os.Exit(1)
+		}
 		notifyReady(opts.UseSdNotify)
 		<-sigCh
 		stopServer(bgpServer, opts.UseSdNotify)
@@ -268,6 +274,24 @@ func main() {
 		cancel()
 		logger.Error("Failed to subscribe Kafka event sinks", slog.Any("Error", err))
 		os.Exit(1)
+	}
+	if opts.KafkaControlHost != "" {
+		if kafkaManager == nil {
+			logger.Error("Kafka capture management requires enabled Kafka")
+			os.Exit(1)
+		}
+		listener, err := net.Listen("tcp", opts.KafkaControlHost)
+		if err != nil {
+			logger.Error("Failed to listen for Kafka capture management", slog.Any("Error", err))
+			os.Exit(1)
+		}
+		control := &http.Server{Handler: kafkaManager.Handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: time.Minute}
+		defer control.Close()
+		go func() {
+			if err := control.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("Kafka capture management stopped", slog.Any("Error", err))
+			}
+		}()
 	}
 	kafkaClosed := false
 	closeKafka := func() {

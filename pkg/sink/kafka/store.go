@@ -26,14 +26,16 @@ var (
 
 // record is an internal delivery envelope. Value is the unmodified ProtoJSON.
 type record struct {
-	Destination *destination `json:",omitempty"`
-	Checksum    string
-	Version     int
-	Sequence    uint64 `json:"-"`
-	Value       []byte
-	Key         []byte
-	Headers     []kgo.RecordHeader
-	Metadata    event.Metadata
+	capture         *captureState `json:"-"`
+	captureSequence uint64        `json:"-"`
+	Destination     *destination  `json:",omitempty"`
+	Checksum        string
+	Version         int
+	Sequence        uint64 `json:"-"`
+	Value           []byte
+	Key             []byte
+	Headers         []kgo.RecordHeader
+	Metadata        event.Metadata
 }
 
 // Broker seeds identify the configured original cluster without storing secrets.

@@ -245,6 +245,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -261,6 +262,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -277,6 +279,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -293,6 +296,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -309,6 +313,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -325,6 +330,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -341,6 +347,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -357,6 +364,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -373,6 +381,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -392,6 +401,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -408,6 +418,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -424,6 +435,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: enable IPv6
         run: |
@@ -447,6 +459,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -463,6 +476,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -479,6 +493,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -495,6 +510,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -511,6 +527,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -527,6 +544,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -543,6 +561,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -559,6 +578,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -582,6 +602,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -598,6 +619,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -614,6 +636,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -630,6 +653,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -646,6 +670,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -662,6 +687,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -678,6 +704,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -694,6 +721,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -710,6 +738,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -726,6 +755,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
@@ -742,13 +772,12 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
           docker load < artifact/gobgp.tar
-          sudo apt-get update
-          sudo apt-get install -y linux-modules-extra-$(uname -r)
-          sudo modprobe vrf
+          sudo bash tools/ci-ensure-vrf.sh
           sudo pip3 install -r test/pip-requires.txt
           PYTHONPATH=test python3 -m pytest test/scenario_test/tcp_md5_test.py --gobgp-image gobgp -x -s
 
@@ -760,13 +789,12 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
+          name: artifact
           path: artifact
       - name: test
         run: |
           docker load < artifact/gobgp.tar
-          sudo apt-get update
-          sudo apt-get install -y linux-modules-extra-$(uname -r)
-          sudo modprobe vrf
+          sudo bash tools/ci-ensure-vrf.sh
           sudo pip3 install -r test/pip-requires.txt
           PYTHONPATH=test python3 -m pytest test/scenario_test/tcp_ao_test.py --gobgp-image gobgp -x -s
 
@@ -781,6 +809,7 @@ jobs:
         with:
           go-version: "1.27.3"
       - run: python3 tools/test-ci-gate.py
+      - run: python3 tools/test-ci-ensure-vrf.py
       - run: tools/check-build.sh
       - uses: goreleaser/goreleaser-action@v7
         with:
@@ -807,10 +836,35 @@ jobs:
           python3 test/integration/r03_refresh_timeout.py --gobgpd "$RUNNER_TEMP/gobgpd-r03"
           go test -race ./pkg/server -run 'TestGRStartup|TestGRInitialConfiguration|TestRefreshTimeout' -count=1 -timeout=90s
 
+  r04-recovery:
+    name: R04 Kafka capture recovery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.3"
+      - name: verify loss detection and the bounded reference consumer
+        run: go test -race ./pkg/sink/kafka/... -run 'TestCapture|TestReference' -count=3 -timeout=120s
+      - name: exercise live recovery through an independent FRR reflector
+        run: |
+          export R04_MODULE_CACHE="$(go env GOMODCACHE)"
+          export R04_BUILD_CACHE="$(go env GOCACHE)"
+          export R04_OUTPUT_DIR="$RUNNER_TEMP/r04-lab"
+          bash test/r04/lab.sh
+      - name: preserve laboratory evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: r04-recovery
+          path: ${{ runner.temp }}/r04-lab
+          if-no-files-found: warn
+
   required:
     name: required
     if: ${{ always() }}
-    needs: [crossbuild, unit, kafka-events, unit386, protobuf-check, yang-check, golangci, embedded, lintdoc, build, router, evpn, flowspec, global-policy, graceful-restart, ibgp, rr, as2, ipv4-v6, malformed, rs-policy-grpc, rs-policy, softreset, rs1, rs2, llgr, vrf-neighbor1, vrf-neighbor2, rtc, unnumbered, aspath, addpath, malformed-handling, confederation, zebra, zebra-nht, zapi-v3, zapi-v3-multipath, mup, bgp-ls, tcp-md5, tcp-ao, build-identity, r03-protocol]
+    needs: [crossbuild, unit, kafka-events, unit386, protobuf-check, yang-check, golangci, embedded, lintdoc, build, router, evpn, flowspec, global-policy, graceful-restart, ibgp, rr, as2, ipv4-v6, malformed, rs-policy-grpc, rs-policy, softreset, rs1, rs2, llgr, vrf-neighbor1, vrf-neighbor2, rtc, unnumbered, aspath, addpath, malformed-handling, confederation, zebra, zebra-nht, zapi-v3, zapi-v3-multipath, mup, bgp-ls, tcp-md5, tcp-ao, build-identity, r03-protocol, r04-recovery]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6

@@ -1,0 +1,280 @@
+{
+  "status": "PASS",
+  "date_utc": "2026-10-30T06:48:17.031411+00:00",
+  "base_commit": "5214c9513a1394c288517173a5553f3a0e2b806c",
+  "branch": "codex/r04-kafka-capture-recovery",
+  "issue": 21,
+  "source_manifest": "r04-kafka-source-manifest.json",
+  "source_manifest_sha256": "49bd267d641e0d1104f849acce084b09773b366151f55db07cfaeaa8402565c9",
+  "verified_identical_cloud_and_local_source_files": 391,
+  "cloud": {
+    "ssh": "root@157.173.116.3",
+    "workspace": "/var/tmp/ngobgp-r04-20261030/iteration9",
+    "lab_evidence": "/var/tmp/ngobgp-r04-20261030/lab-ci-owner",
+    "architecture": "linux/amd64",
+    "go": "go1.27.3",
+    "tooling_image": "ngobgp-startup-checks:20261023",
+    "tooling_image_id": "sha256:28ae9fb81a203a373b2b1ec838a3b7b723824eeab7f9322bf900b231d239d8ff",
+    "regression_cpus": 4,
+    "regression_memory_bytes": 6442450944,
+    "regression_network": "none",
+    "ci_ownership_fixture": {
+      "workspace": "/var/tmp/ngobgp-r04-20261030/ci-checkout",
+      "checkout_uid": 1001,
+      "container_uid": 0,
+      "expected_untrusted_build_exit_code": 1,
+      "corrected_lab_exit_code": 0,
+      "trusted_git_path": "/work",
+      "global_git_configuration_modified": false,
+      "vcs_stamping_enabled": true,
+      "fixture_commit": "6c36a632b65055b3ccf7765e397c9bdb4bb195dc",
+      "note": "Disposable Git fixture used only to reproduce CI ownership; this is not a published fork commit."
+    }
+  },
+  "execution_restrictions": {
+    "manual_local_tests_run": false,
+    "local_go_formatters_or_linters_run": false,
+    "old_lab_192_168_5_89_used": false,
+    "ci_runs_authorized": true
+  },
+  "validation": [
+    {
+      "command": "go test -v -race ./pkg/sink/kafka -run TestCaptureSinkLoss -count=10 -timeout=120s",
+      "exit_code": 0,
+      "repetitions": 10
+    },
+    {
+      "command": "go test -race ./pkg/sink/kafka/... -count=3 -timeout=120s",
+      "exit_code": 0,
+      "new_top_level_regression_tests": 15,
+      "repetitions": 3
+    },
+    {
+      "command": "go test -race ./... -count=1 -timeout=240s",
+      "exit_code": 0,
+      "server_duration_seconds": 186.03
+    },
+    {
+      "command": "go test -race ./pkg/sink/kafka/reference -count=3 -timeout=120s",
+      "exit_code": 0,
+      "note": "Repeated after the test-only context key was given its own named type for staticcheck; production sources were unchanged."
+    },
+    {
+      "command": "golangci-lint run --timeout=10m ./...",
+      "exit_code": 0,
+      "issues": 0
+    },
+    {
+      "command": "go build -race -o /tmp/gobgpd ./cmd/gobgpd",
+      "exit_code": 0
+    },
+    {
+      "command": "R03 integration scripts against the race-enabled daemon",
+      "exit_code": 0,
+      "cases": [
+        {
+          "case": "rpki-import",
+          "result": "PASS"
+        },
+        {
+          "case": "rpki-export",
+          "result": "PASS"
+        },
+        {
+          "case": "vrf-nht",
+          "result": "PASS"
+        },
+        {
+          "case": "refresh-addpath",
+          "send-max": 1,
+          "enhanced": true,
+          "result": "PASS"
+        },
+        {
+          "case": "refresh-addpath",
+          "send-max": 2,
+          "enhanced": true,
+          "result": "PASS"
+        },
+        {
+          "case": "refresh-addpath",
+          "send-max": 1,
+          "enhanced": false,
+          "result": "PASS"
+        },
+        {
+          "case": "refresh-addpath",
+          "send-max": 2,
+          "enhanced": false,
+          "result": "PASS"
+        },
+        {
+          "case": "enhanced-refresh",
+          "result": "PASS"
+        },
+        {
+          "case": "gr-eor-family",
+          "result": "PASS"
+        },
+        {
+          "case": "gr-reconnect-preserve",
+          "result": "PASS"
+        },
+        {
+          "case": "gr-reconnect-clear-forwarding",
+          "result": "PASS"
+        },
+        {
+          "case": "gr-reconnect-withdraw-capability",
+          "result": "PASS"
+        },
+        {
+          "case": "llgr-eor",
+          "result": "PASS"
+        },
+        {
+          "case": "llgr-expiry",
+          "result": "PASS"
+        },
+        {
+          "case": "llgr-clear-forwarding",
+          "result": "PASS"
+        },
+        {
+          "case": "llgr-consecutive",
+          "result": "PASS"
+        },
+        {
+          "case": "llgr-llgr-only",
+          "result": "PASS"
+        },
+        {
+          "case": "refresh-timeout",
+          "repeated-borr": false,
+          "disabled": false,
+          "result": "PASS"
+        },
+        {
+          "case": "refresh-timeout",
+          "repeated-borr": true,
+          "disabled": false,
+          "result": "PASS"
+        },
+        {
+          "case": "refresh-timeout",
+          "repeated-borr": false,
+          "disabled": true,
+          "result": "PASS"
+        },
+        {
+          "case": "refresh-timeout-disconnect",
+          "llgr": false,
+          "result": "PASS"
+        },
+        {
+          "case": "refresh-timeout-disconnect",
+          "llgr": true,
+          "result": "PASS"
+        }
+      ]
+    },
+    {
+      "command": "python3 tools/test-ci-gate.py",
+      "exit_code": 0,
+      "tests": 4
+    },
+    {
+      "command": "actionlint .github/workflows/*.yml; markdownlint; scspell; avoided-functions; ASCII; bash -n; Python compile",
+      "exit_code": 0
+    },
+    {
+      "command": "R04_OUTPUT_DIR=.../lab-ci-owner bash test/r04/lab.sh",
+      "exit_code": 0,
+      "go_test_duration_seconds": 105.66,
+      "result": "r04-kafka-hot-lab.json"
+    },
+    {
+      "command": "python3 tools/test-ci-ensure-vrf.py; python3 tools/test-ci-gate.py; actionlint; bash -n tools/ci-ensure-vrf.sh",
+      "exit_code": 0,
+      "vrf_preparation_cases": 4,
+      "gate_cases": 4,
+      "kernel_modified_in_manual_tests": false
+    }
+  ],
+  "lab": {
+    "routes": 5000,
+    "generators": 2,
+    "bgp_sessions": 3,
+    "families": [
+      "ipv4",
+      "ipv6"
+    ],
+    "withdrawals": 400,
+    "new_prefixes": 400,
+    "attribute_changes": 400,
+    "partitions_observed": 3,
+    "actual_reference_cli": true,
+    "auto_recovery": true,
+    "rib_prefix_and_attribute_digest_match": true,
+    "peer_uptime_and_flops_unchanged": true,
+    "network": "Docker internal with IPv4 and IPv6",
+    "published_host_ports": [],
+    "privileged": false,
+    "frr_capabilities": [
+      "NET_ADMIN",
+      "NET_RAW",
+      "SYS_ADMIN"
+    ],
+    "collector_cpus": 3,
+    "collector_memory_bytes": 6442450944,
+    "broker_cpus": 1,
+    "broker_memory_bytes": 1073741824,
+    "reflector_cpus": 0.5,
+    "reflector_memory_bytes": 536870912,
+    "each_generator_cpus": 0.25,
+    "each_generator_memory_bytes": 134217728,
+    "images": [
+      {
+        "tags": [
+          "golang:1.27.3"
+        ],
+        "digests": [
+          "golang@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc"
+        ],
+        "id": "sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc"
+      },
+      {
+        "tags": [
+          "quay.io/frrouting/frr:10.2.3"
+        ],
+        "digests": [
+          "quay.io/frrouting/frr@sha256:b48e58300fea8288a8ea0ce62c6f722945bb9dda532526fb9ef12f88278e4d66"
+        ],
+        "id": "sha256:b48e58300fea8288a8ea0ce62c6f722945bb9dda532526fb9ef12f88278e4d66"
+      },
+      {
+        "tags": [
+          "apache/kafka:3.9.1"
+        ],
+        "digests": [
+          "apache/kafka@sha256:4ceccc577f03f51f6af8dbfda55194d0d892f4fa7913ffbded567ce3895622ed"
+        ],
+        "id": "sha256:4ceccc577f03f51f6af8dbfda55194d0d892f4fa7913ffbded567ce3895622ed"
+      }
+    ],
+    "resources_removed_after_validation": true,
+    "default_images_pinned": true
+  },
+  "notes": [
+    "The archive has no .git directory; actionlint autodiscovery was replaced by explicit workflow paths. No workflow change was needed for that invocation.",
+    "The saturation fixture exceeds writer batching; its larger admitted workload has a dedicated drain deadline. The loss detection deadline and production shutdown defaults were not relaxed.",
+    "Reference pending records retain only contract payload and headers, avoiding unrelated Kafka key/context buffers.",
+    "Initial PR CI job 123925078383 refused VCS access to a checkout owned by another UID. The cloud reproduction failed without the scoped trust and passed the complete lab with it; Go VCS metadata was retained. All default lab images are now pinned to tested digests.",
+    "TCP-MD5/AO runner preparation now loads the required VRF module first and installs matching extra modules only when needed. Missing packages or unavailable VRF still fail the job. Real TCP test execution remains mandatory in CI."
+  ],
+  "remaining_limits": [
+    "Native bootstrap allocation and interruptible preparation remain R05 work.",
+    "This 5000-route functional regression does not establish production capacity.",
+    "HTTP administration is opt-in on a trusted network; the reference CLI uses plaintext Kafka and no external materialized-state persistence."
+  ]
+}
