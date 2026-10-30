@@ -3,7 +3,7 @@
   ".github/PULL_REQUEST_TEMPLATE.md": "d6c16812ad2aae34c9170c3ae8d2279fb3be5e3e4b2ecf33cf192fcf5e88f8bd",
   ".github/SECURITY.md": "145d3b68387fb2ee608b898af3f23ea3ba3eb029ebc340b3b8159ea526fa15ea",
   ".github/main-protection.json": "8b3bdfa329dfd4a5ed3ca46e498093cb9d01de99e0a900a23ce470f8ba0bc0a2",
-  ".github/workflows/ci.yml": "4098686895873a16867860f3039bfb165a1f93fffc4009b9b8e0a48869d64d2e",
+  ".github/workflows/ci.yml": "a58aa4d5ef7461fdddd01b4fc0d7398b6e153fce5b1028b577955bb2f7a0df6f",
   ".github/workflows/release.yml": "5991df73826c0eb1637d1bfe0f0505e78b13c5d8563f93656a247adaa9c772c0",
   ".gitignore": "d2564fd3ac5013d6f673105f978c15ece960302ebc3dff30b5b85b98d630722f",
   ".golangci.yml": "bf4d95897e9bb62b7b53105e744e087e3083aaa0a70764848833c0017b2b0d78",
@@ -361,6 +361,7 @@
   "tools/build.sh": "2ea61a727f759243b06dc22eb031cfb262602ac6c2d589e5605b0fdcb0fc18de",
   "tools/check-build.sh": "cdcb0152a152f79d1dd77830d6c1af2c3b07f90823479175d9ebf81551fe2c76",
   "tools/check-ci.py": "ffe18a71a808682741086c23000a13ba791b8ed7432bcd11d36e1188beb85a43",
+  "tools/ci-ensure-vrf.sh": "b26b621a67cb7ef2e291c7c8a98bf67f772caa7e2763f15825b5157e2ec54229",
   "tools/completion/README.md": "f8491530c39a5e46735b34b95d4d9360e7579331523df5b4463e91f5af2c329e",
   "tools/completion/gobgp-completion.bash": "c42a78ab910a2303362bb8665d36979af19076b861ebf78a17a0152d7ff16452",
   "tools/completion/gobgp-dynamic-completion.bash": "7f939dde6d8c4f2fe40cb358a25f69131df99caf6beac735ffe90120dc87fdb6",
@@ -387,5 +388,6 @@
   "tools/spell-check/dictionary.txt": "d3f7c6de9900a29f91435e40fb7fdc411b17754f26565c70662810839349034f",
   "tools/spell-check/ignore.txt": "9f472b917a364d3e28e4be0eeb883c778b71d57029d6a67899e666f460c1a306",
   "tools/spell-check/scspell.sh": "c45d6b4d054e2d1ab93af4f0041d10ada46407b09123e604521bd6e777ff580a",
+  "tools/test-ci-ensure-vrf.py": "f23da4af59c1e3b7efd8cabe1a8454d034f9bb1969d4b65fc618248cd30e10a9",
   "tools/test-ci-gate.py": "60f1c9f538d3571d9765a7e189bee5889ff22cb64b0e2553b3ec88c3673f6a60"
 }

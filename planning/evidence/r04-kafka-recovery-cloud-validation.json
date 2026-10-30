@@ -1,12 +1,12 @@
 {
   "status": "PASS",
-  "date_utc": "2026-10-30T06:36:33.573009+00:00",
+  "date_utc": "2026-10-30T06:48:17.031411+00:00",
   "base_commit": "5214c9513a1394c288517173a5553f3a0e2b806c",
   "branch": "codex/r04-kafka-capture-recovery",
   "issue": 21,
   "source_manifest": "r04-kafka-source-manifest.json",
-  "source_manifest_sha256": "d5571acd92bcc1585483f51c09e0731ba8c8c51dc87698ac28a1930613e4beca",
-  "verified_identical_cloud_and_local_source_files": 389,
+  "source_manifest_sha256": "49bd267d641e0d1104f849acce084b09773b366151f55db07cfaeaa8402565c9",
+  "verified_identical_cloud_and_local_source_files": 391,
   "cloud": {
     "ssh": "root@157.173.116.3",
     "workspace": "/var/tmp/ngobgp-r04-20261030/iteration9",
@@ -192,6 +192,13 @@
       "exit_code": 0,
       "go_test_duration_seconds": 105.66,
       "result": "r04-kafka-hot-lab.json"
+    },
+    {
+      "command": "python3 tools/test-ci-ensure-vrf.py; python3 tools/test-ci-gate.py; actionlint; bash -n tools/ci-ensure-vrf.sh",
+      "exit_code": 0,
+      "vrf_preparation_cases": 4,
+      "gate_cases": 4,
+      "kernel_modified_in_manual_tests": false
     }
   ],
   "lab": {
@@ -262,7 +269,8 @@
     "The archive has no .git directory; actionlint autodiscovery was replaced by explicit workflow paths. No workflow change was needed for that invocation.",
     "The saturation fixture exceeds writer batching; its larger admitted workload has a dedicated drain deadline. The loss detection deadline and production shutdown defaults were not relaxed.",
     "Reference pending records retain only contract payload and headers, avoiding unrelated Kafka key/context buffers.",
-    "Initial PR CI job 123925078383 refused VCS access to a checkout owned by another UID. The cloud reproduction failed without the scoped trust and passed the complete lab with it; Go VCS metadata was retained. All default lab images are now pinned to tested digests."
+    "Initial PR CI job 123925078383 refused VCS access to a checkout owned by another UID. The cloud reproduction failed without the scoped trust and passed the complete lab with it; Go VCS metadata was retained. All default lab images are now pinned to tested digests.",
+    "TCP-MD5/AO runner preparation now loads the required VRF module first and installs matching extra modules only when needed. Missing packages or unavailable VRF still fail the job. Real TCP test execution remains mandatory in CI."
   ],
   "remaining_limits": [
     "Native bootstrap allocation and interruptible preparation remain R05 work.",

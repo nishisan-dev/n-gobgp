@@ -777,9 +777,7 @@ jobs:
       - name: test
         run: |
           docker load < artifact/gobgp.tar
-          sudo apt-get update
-          sudo apt-get install -y linux-modules-extra-$(uname -r)
-          sudo modprobe vrf
+          sudo bash tools/ci-ensure-vrf.sh
           sudo pip3 install -r test/pip-requires.txt
           PYTHONPATH=test python3 -m pytest test/scenario_test/tcp_md5_test.py --gobgp-image gobgp -x -s
 
@@ -796,9 +794,7 @@ jobs:
       - name: test
         run: |
           docker load < artifact/gobgp.tar
-          sudo apt-get update
-          sudo apt-get install -y linux-modules-extra-$(uname -r)
-          sudo modprobe vrf
+          sudo bash tools/ci-ensure-vrf.sh
           sudo pip3 install -r test/pip-requires.txt
           PYTHONPATH=test python3 -m pytest test/scenario_test/tcp_ao_test.py --gobgp-image gobgp -x -s
 
@@ -813,6 +809,7 @@ jobs:
         with:
           go-version: "1.27.3"
       - run: python3 tools/test-ci-gate.py
+      - run: python3 tools/test-ci-ensure-vrf.py
       - run: tools/check-build.sh
       - uses: goreleaser/goreleaser-action@v7
         with:

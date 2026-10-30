@@ -114,3 +114,19 @@ Reference binary VCS metadata from the disposable fixture:
 Final source verification:
 IDENTICAL_SOURCE_FILES 389
 MANIFEST_SHA256 d5571acd92bcc1585483f51c09e0731ba8c8c51dc87698ac28a1930613e4beca
+
+VRF preparation simulated branches and workflow validation:
+....
+----------------------------------------------------------------------
+Ran 4 tests in 1.230s
+
+OK
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.348s
+
+OK
+
+Final source verification with CI preparation:
+IDENTICAL_SOURCE_FILES 391
+MANIFEST_SHA256 49bd267d641e0d1104f849acce084b09773b366151f55db07cfaeaa8402565c9
