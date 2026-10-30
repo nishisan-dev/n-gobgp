@@ -92,6 +92,8 @@ func NewMatcher(c MatchConfig) (*Matcher, error) {
 	return &Matcher{config: c}, nil
 }
 
+func (m *Matcher) AllowsEventType(kind string) bool { return matches(m.config.EventTypes, kind) }
+
 func (m *Matcher) AllowsSource(source string) bool { return matches(m.config.Sources, source) }
 func (m *Matcher) AllowsFamily(family string) bool { return matches(m.config.Families, family) }
 func (m *Matcher) Match(v Metadata) bool {

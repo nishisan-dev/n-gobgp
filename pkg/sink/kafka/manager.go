@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +22,8 @@ import (
 )
 
 type Manager struct {
+	source          event.Source
+	capture         atomic.Pointer[captureBatch]
 	config          config.Config
 	metrics         *metrics
 	sinks           []*sink
@@ -139,6 +142,13 @@ func newManager(c config.Config, logger *slog.Logger, registerer prometheus.Regi
 			return prometheus.NewGaugeFunc(prometheus.GaugeOpts{Namespace: "gobgp", Subsystem: "kafka", Name: name, Help: help, ConstLabels: prometheus.Labels{"cluster": s.config.Cluster, "sink": s.name, "topic": s.config.Topic}}, fn)
 		}
 		m.collectors = append(m.collectors,
+			gauge("capture_ready", "One if the current capture snapshot is persisted and no loss has been observed.", func() float64 {
+				c := s.capture.Load()
+				if c != nil && c.end.Load() != 0 && c.lost.Load() == 0 {
+					return 1
+				}
+				return 0
+			}),
 			gauge("queue_size", "Records awaiting durable persistence.", func() float64 { return float64(len(s.queue)) }),
 			gauge("queue_capacity", "Capacity of the per-sink admission queue.", func() float64 { return float64(cap(s.queue)) }),
 			gauge("backlog_records", "Records pending in durable storage.", func() float64 {
@@ -184,6 +194,7 @@ func newManager(c config.Config, logger *slog.Logger, registerer prometheus.Regi
 			registered = append(registered, collector)
 		}
 	}
+	m.newCapture(false)
 	return m, nil
 }
 
@@ -196,9 +207,34 @@ func (m *Manager) Start(source event.Source) error {
 	if m.closed || m.started {
 		return fmt.Errorf("kafka manager already started or closed")
 	}
+	m.source = source
+	for _, s := range m.sinks {
+		if s.store == nil {
+			close(s.writerDone)
+			close(s.publisherDone)
+			close(s.drained)
+			continue
+		}
+		go s.writeLoop()
+		go s.publishLoop()
+	}
+	m.started = true
+	sub, err := m.subscribe(source, m.capture.Load())
+	if err != nil {
+		for _, c := range m.capture.Load().states {
+			c.invalidate(lossSubscription)
+		}
+		return err
+	}
+	m.subscription = sub
+	m.monitorCapture(m.capture.Load(), sub)
+	return nil
+}
+
+func (m *Manager) subscribe(source event.Source, b *captureBatch) (event.Subscription, error) {
 	initialDump := false
 	for _, s := range m.sinks {
-		if s.healthy.Load() && s.config.InitialDump {
+		if s.healthy.Load() && (b.forced || s.config.InitialDump) {
 			initialDump = true
 		}
 	}
@@ -216,7 +252,7 @@ func (m *Manager) Start(source event.Source) error {
 	initialFamilies := make([]string, 0)
 	for _, candidate := range event.Sources {
 		for _, s := range m.sinks {
-			if s.healthy.Load() && s.config.InitialDump && s.matcher.AllowsSource(candidate) {
+			if s.healthy.Load() && (b.forced || s.config.InitialDump) && s.matcher.AllowsSource(candidate) {
 				initialSources = append(initialSources, candidate)
 				break
 			}
@@ -224,48 +260,30 @@ func (m *Manager) Start(source event.Source) error {
 	}
 	for _, candidate := range bgp.AddressFamilyNameMap {
 		for _, s := range m.sinks {
-			if s.healthy.Load() && s.config.InitialDump && s.matcher.AllowsFamily(candidate) {
+			if s.healthy.Load() && (b.forced || s.config.InitialDump) && s.matcher.AllowsFamily(candidate) {
 				initialFamilies = append(initialFamilies, candidate)
 				break
 			}
 		}
 	}
 	slices.Sort(initialFamilies)
-	if len(sources) > 0 && source == nil {
-		return fmt.Errorf("event source is required")
+	if len(sources) == 0 {
+		return nil, nil
 	}
-	for _, s := range m.sinks {
-		if s.store == nil {
-			close(s.writerDone)
-			close(s.publisherDone)
-			close(s.drained)
-			continue
-		}
-		go s.writeLoop()
-		go s.publishLoop()
+	if source == nil {
+		return nil, fmt.Errorf("event source is required")
 	}
-	m.started = true
-	if len(sources) > 0 {
-		sub, err := source.SubscribeEvents(event.SubscriptionOptions{InitialDump: initialDump, InitialSources: initialSources, InitialFamilies: initialFamilies, Sources: sources, Capacity: m.config.IngressQueueSize, OnDrop: func() {
-			m.metrics.ingressDropped.Inc()
-			for _, s := range m.sinks {
-				s.bootstrapCapture.CompareAndSwap(0, 1)
-			}
-		}}, m.route)
-		if err != nil {
-			return err
-		}
-		m.subscription = sub
-	}
-
-	return nil
+	return source.SubscribeEvents(event.SubscriptionOptions{InitialDump: initialDump, InitialSources: initialSources, InitialFamilies: initialFamilies, Sources: sources, Capacity: m.config.IngressQueueSize, OnDrop: func() { m.captureDrop(b) }}, func(v event.Observation) { m.routeCapture(b, v) })
 }
 
-func (m *Manager) route(v event.Observation) {
+func (m *Manager) routeCapture(b *captureBatch, v event.Observation) {
+	if b == nil || m.capture.Load() != b {
+		return
+	}
 	m.metrics.received.WithLabelValues(metricFamily(v.Metadata.Family), v.Metadata.EventType).Inc()
 	matched := []*sink{}
 	for _, s := range m.sinks {
-		if v.Metadata.SnapshotID != "" && !s.config.InitialDump {
+		if v.Metadata.SnapshotID != "" && !b.forced && !s.config.InitialDump {
 			continue
 		}
 		if v.Metadata.SnapshotPhase != "" && v.Metadata.SnapshotPhase != "data" || s.Match(v.Metadata) {
@@ -283,15 +301,6 @@ func (m *Manager) route(v event.Observation) {
 	cache := map[string]serialized{}
 	id := uuid.NewString()
 	for _, s := range matched {
-		if v.Metadata.SnapshotPhase == "end" {
-			// Seal capture atomically against the non-blocking ingress drop hook.
-			// Subsequent ingress loss belongs to the delta stream; local loss of
-			// queued snapshot records is still checked by the ordered writer.
-			s.bootstrapCapture.CompareAndSwap(0, 2)
-			if s.bootstrapCapture.Load() == 1 {
-				s.snapshotFailed.Store(true)
-			}
-		}
 		encoded, ok := cache[s.config.Format]
 		if !ok {
 			encoded.err = v.Err
@@ -304,10 +313,11 @@ func (m *Manager) route(v event.Observation) {
 			s.metrics.serializationErrors.WithLabelValues(labels(s, v.Metadata)...).Inc()
 			s.metrics.dropped.WithLabelValues(labels(s, v.Metadata)...).Inc()
 			s.snapshotFailed.Store(true)
+			b.states[s].invalidate(lossSerialization)
 			s.logError("Kafka event serialization failed", encoded.err)
 			continue
 		}
-		s.offer(v, encoded.value, id)
+		s.offerCapture(v, encoded.value, id, b.states[s])
 	}
 }
 
@@ -336,6 +346,11 @@ func (m *Manager) Close(ctx context.Context) error {
 func (m *Manager) shutdown(ctx context.Context) error {
 	m.lifecycle.Lock()
 	m.closed = true
+	if b := m.capture.Load(); b != nil {
+		for _, c := range b.states {
+			c.invalidate(lossClosed)
+		}
+	}
 	started := m.started
 	sub := m.subscription
 	m.lifecycle.Unlock()

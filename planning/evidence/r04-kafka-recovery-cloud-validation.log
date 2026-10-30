@@ -1,0 +1,96 @@
+Final race suite, repeated saturation and Kafka regressions (the final staticcheck diagnostic is resolved in the next phase):
+=== RUN   TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues
+--- PASS: TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues (4.25s)
+=== RUN   TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues
+--- PASS: TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues (4.32s)
+=== RUN   TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues
+--- PASS: TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues (4.22s)
+=== RUN   TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues
+--- PASS: TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues (4.32s)
+=== RUN   TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues
+--- PASS: TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues (5.39s)
+=== RUN   TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues
+--- PASS: TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues (3.88s)
+=== RUN   TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues
+--- PASS: TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues (4.63s)
+=== RUN   TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues
+--- PASS: TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues (4.19s)
+=== RUN   TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues
+--- PASS: TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues (4.61s)
+=== RUN   TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues
+--- PASS: TestCaptureSinkLossIsScopedAndStatusBypassesFullQueues (5.14s)
+PASS
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka	46.081s
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka	34.388s
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka/reference	1.213s
+?   	github.com/osrg/gobgp/v4/api	[no test files]
+ok  	github.com/osrg/gobgp/v4/cmd/gobgp	1.254s
+?   	github.com/osrg/gobgp/v4/cmd/gobgpd	[no test files]
+?   	github.com/osrg/gobgp/v4/cmd/kafka-reference-consumer	[no test files]
+ok  	github.com/osrg/gobgp/v4/internal/pkg/netutils	1.208s
+ok  	github.com/osrg/gobgp/v4/internal/pkg/table	3.639s
+ok  	github.com/osrg/gobgp/v4/internal/pkg/version	1.079s
+ok  	github.com/osrg/gobgp/v4/pkg/apiutil	1.296s
+ok  	github.com/osrg/gobgp/v4/pkg/config	1.399s
+?   	github.com/osrg/gobgp/v4/pkg/config/kafka	[no test files]
+ok  	github.com/osrg/gobgp/v4/pkg/config/oc	1.715s
+ok  	github.com/osrg/gobgp/v4/pkg/event	1.195s
+ok  	github.com/osrg/gobgp/v4/pkg/metrics	10.830s
+ok  	github.com/osrg/gobgp/v4/pkg/packet/bfd	1.173s
+ok  	github.com/osrg/gobgp/v4/pkg/packet/bgp	3.304s
+ok  	github.com/osrg/gobgp/v4/pkg/packet/bmp	1.250s
+ok  	github.com/osrg/gobgp/v4/pkg/packet/mrt	1.122s
+ok  	github.com/osrg/gobgp/v4/pkg/packet/rtr	1.176s
+ok  	github.com/osrg/gobgp/v4/pkg/server	186.030s
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka	15.003s
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka/reference	1.411s
+ok  	github.com/osrg/gobgp/v4/pkg/zebra	1.255s
+ok  	github.com/osrg/gobgp/v4/test/r04	1.279s
+?   	github.com/osrg/gobgp/v4/tools/config	[no test files]
+?   	github.com/osrg/gobgp/v4/tools/mrt-updates	[no test files]
+pkg/sink/kafka/reference/state_test.go:122:61: SA1029: should not use empty anonymous struct as key for value; define your own type to avoid collisions (staticcheck)
+	buffered.Context = context.WithValue(context.Background(), struct{}{}, make([]byte, 1<<20))
+	                                                           ^
+1 issues:
+* staticcheck: 1
+
+Named test context key, reference regressions and final staticcheck:
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka/reference	1.231s
+0 issues.
+
+R03 BGP wire regressions:
+{"case": "rpki-import", "result": "PASS"}
+{"case": "rpki-export", "result": "PASS"}
+{"case": "vrf-nht", "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 1, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": true, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 1, "enhanced": false, "result": "PASS"}
+{"case": "refresh-addpath", "send-max": 2, "enhanced": false, "result": "PASS"}
+{"case": "enhanced-refresh", "result": "PASS"}
+{"case": "gr-eor-family", "result": "PASS"}
+{"case": "gr-reconnect-preserve", "result": "PASS"}
+{"case": "gr-reconnect-clear-forwarding", "result": "PASS"}
+{"case": "gr-reconnect-withdraw-capability", "result": "PASS"}
+{"case": "llgr-eor", "result": "PASS"}
+{"case": "llgr-expiry", "result": "PASS"}
+{"case": "llgr-clear-forwarding", "result": "PASS"}
+{"case": "llgr-consecutive", "result": "PASS"}
+{"case": "llgr-llgr-only", "result": "PASS"}
+{"case": "refresh-timeout", "repeated-borr": false, "disabled": false, "result": "PASS"}
+{"case": "refresh-timeout", "repeated-borr": true, "disabled": false, "result": "PASS"}
+{"case": "refresh-timeout", "repeated-borr": false, "disabled": true, "result": "PASS"}
+{"case": "refresh-timeout-disconnect", "llgr": false, "result": "PASS"}
+{"case": "refresh-timeout-disconnect", "llgr": true, "result": "PASS"}
+Workflow and documentation checks:
+=== explicit workflow files (archive has no Git directory) ===
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.393s
+
+OK
+=== documentation ===
+=== STATIC CHECKS PASS ===
+
+Source verification:
+IDENTICAL_SOURCE_FILES 389
+MANIFEST_SHA256 982e9948097df8dd70813f3b83379395e536a71c16b1013b05493ddc96d5dd78

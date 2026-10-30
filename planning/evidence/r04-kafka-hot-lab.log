@@ -1,0 +1,6 @@
+=== RUN   TestR04ReflectorHotRecovery
+    lab_test.go:270: initial convergence after 52.404560177s: {Contract:1 Generation:cd61719c-3439-4ae0-bfdf-9dc7804aa15f Sinks:[{Sink:raw Generation:cd61719c-3439-4ae0-bfdf-9dc7804aa15f State:ready Scope:entire-configured-sink Match:{EventTypes:{Include:[] Exclude:[]} Families:{Include:[] Exclude:[]} Sources:{Include:[adj-in] Exclude:[]} Peers:{Addresses:{Include:[] Exclude:[]} ASNs:{Include:[] Exclude:[]}}} SnapshotRequested:true StorageHealthy:true Publishing:true LossReasons:[] LossIncidents:0 LastSequence:5004 LastPublishedSequence:5004 SnapshotEndSequence:5004}]}
+    lab_test.go:282: broker restarted after 59.178831062s: {Contract:1 Generation:a885c12c-650d-4477-a8ca-7409364fb022 Sinks:[{Sink:raw Generation:a885c12c-650d-4477-a8ca-7409364fb022 State:capturing Scope:entire-configured-sink Match:{EventTypes:{Include:[] Exclude:[]} Families:{Include:[] Exclude:[]} Sources:{Include:[adj-in] Exclude:[]} Peers:{Addresses:{Include:[] Exclude:[]} ASNs:{Include:[] Exclude:[]}}} SnapshotRequested:true StorageHealthy:true Publishing:true LossReasons:[] LossIncidents:0 LastSequence:1529 LastPublishedSequence:0 SnapshotEndSequence:0}]}
+--- PASS: TestR04ReflectorHotRecovery (118.82s)
+PASS
+ok  	github.com/osrg/gobgp/v4/test/r04	120.099s

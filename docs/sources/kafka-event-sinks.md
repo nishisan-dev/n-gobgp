@@ -93,16 +93,17 @@ See the [franz-go producer guarantees](https://pkg.go.dev/github.com/twmb/franz-
 
 Committed records have at-least-once delivery: restart can duplicate records
 from the last window, including a previously acknowledged prefix. Consumers
-should deduplicate event IDs and use the stable `spool-sequence` to reject
-stale updates during recovery. Discarded events create gaps. There is no
+should deduplicate event IDs and preserve capture-generation boundaries during
+recovery. `spool-sequence` orders persisted records; it cannot reveal losses
+before persistence. Contract 1 below makes those losses explicit. There is no
 ordering guarantee between sinks, across changed partition counts, or across
 a changed destination. With `peer+family`, peer-state and route events have
 different keys and therefore are not ordered relative to one another.
 
 Headers include `content-type`, `serializer`, `schema`, `sink`, `gobgp-version`,
 `source`, `event-type`, `observed-at`, `event-id`, `stream-id` and
-`spool-sequence`. A stream ID identifies one sink capture invocation; the
-sequence is monotonic in that sink's spool and survives replay. Recreating the
+`spool-sequence`. A stream ID identifies one sink process invocation; resynchronization uses a
+separate capture generation. The spool sequence is monotonic in that sink's spool and survives replay. Recreating the
 spool resets this sequence and requires a fresh bootstrap/reset of consumer
 tracking. Optional `collectorId`
 becomes `collector-id`. The schema is `api.WatchEventResponse`. An event ID is
@@ -117,6 +118,151 @@ Capture identity headers are additive: `fork-name` (`n-gobgp`), `fork-version`,
 All identity headers are persisted with the record and preserved on retry and
 replay after upgrades; they describe the capturing binary. Older spool records
 without these headers are delivered unchanged. Protobuf values are unchanged.
+
+## Capture loss and recovery: contract 1
+
+New records add three headers without changing the BGP ProtoJSON value:
+
+| Header | Meaning |
+| --- | --- |
+| `capture-contract` | `1`, the capture/recovery protocol version |
+| `capture-generation` | Opaque generation shared by this manager's active sink views |
+| `capture-sequence` | Monotonic observation sequence within one sink and generation, assigned before sink admission |
+
+A resynchronization or process restart creates a fresh generation. Durable
+replay preserves the original generation, sequence, event ID and producer
+identity. It never stamps old records as part of the new capture. Older records
+without the new headers are still published unchanged.
+
+Sequence numbers alone are insufficient: shared-ingress loss and serialization
+failure can occur before a sequence is assigned, and the last record may be
+lost without a subsequent record exposing a gap. A consumer must also consult
+the capture management state. State transitions use atomics, independently of
+queue space, spool writes and Kafka availability. No loss notification is
+placed into the same full data queue.
+
+Shared-ingress loss conservatively invalidates every affected subscription
+sink because the drop hook has no peer/family metadata. A sink's own admission,
+serialization, quota or storage failure invalidates only that sink. Detected
+out-of-order delivery failure, unexpected subscription termination and malformed
+snapshot boundaries also invalidate captures. Loss is latched until a new
+generation; completing a previously started snapshot cannot erase it.
+
+### Optional management endpoint
+
+Enable the endpoint explicitly on a trusted administration interface:
+
+```sh
+gobgpd -f gobgp.yaml -t yaml --kafka-control-host=127.0.0.1:50052
+curl http://127.0.0.1:50052/v1/capture
+```
+
+The listener is disabled by default and requires enabled Kafka configuration.
+It has no built-in authentication; restrict access to the administrative
+network or wrap `Manager.Handler()` with your application's authentication.
+No changes to the BGP gRPC API are required.
+
+`GET /v1/capture` returns the contract version, current generation and a status
+for each configured sink, including its filters, scope, loss reasons, last
+observation sequence, persisted snapshot-end sequence, storage health and
+publishing availability. It remains available while queues are full and while
+another management operation is rebuilding the subscription.
+
+| State | Meaning |
+| --- | --- |
+| `awaiting-snapshot` | No complete snapshot exists in this generation |
+| `capturing` | Observations exist, but no snapshot end has been persisted |
+| `ready` | Snapshot end is persisted and no capture loss has been observed |
+| `invalid` | This generation cannot certify a complete live view |
+
+`ready` describes capture and persistence of the selected local RIB view. It
+does not certify that every BGP peer has completed GR/EOR or has converged.
+A consumer still
+needs every sequence through the snapshot end, the advertised snapshot record
+count and the required deltas. Broker lag is distinguishable from capture
+loss. The `gobgp_kafka_capture_ready` gauge reports producer readiness, without
+using generations as metric labels.
+
+A consumer requests recovery with the generation it last observed:
+
+```sh
+curl -X POST http://127.0.0.1:50052/v1/resync \
+  -H 'Content-Type: application/json' \
+  -d '{"generation":"generation-returned-by-GET"}'
+```
+
+The operation invalidates the old generation, detaches its subscription and
+creates a native snapshot-plus-deltas boundary for all healthy configured
+sinks, including sinks that did not request a startup dump. Backlog is retained.
+HTTP 202 means that the new subscription has been installed; it does not mean
+that the snapshot has reached Kafka or the consumer. Poll the returned
+capture generation and consume its records before declaring readiness.
+
+An empty/stale generation or concurrent management operation returns HTTP 409.
+Malformed JSON returns 400; unavailable subscriptions return 503. A canceled or
+failed attempt leaves a new invalid generation when transition already began;
+cancellation does not roll back executed work. Read the status before retrying
+an ambiguous response. Storage failure or suspended permanent delivery errors
+still require their existing operational repair/restart; a snapshot cannot
+repair a failed disk or resume a permanently suspended publisher.
+
+The endpoint returns the current generation rather than a historical loss
+ledger. After restart, a new unvalidated generation prevents an old durable
+snapshot from being mistaken for current completeness, even if the earlier
+process could not persist a loss marker.
+
+### Reference consumer
+
+Build and run the reference Adj-RIB-In consumer:
+
+```sh
+go build -o kafka-reference-consumer ./cmd/kafka-reference-consumer
+./kafka-reference-consumer --brokers=127.0.0.1:9092 \
+  --topic=network.bgp.raw --sink=raw \
+  --control=http://127.0.0.1:50052
+```
+
+The CLI is a laboratory/reference client using plaintext Kafka and trusted
+HTTP. It consumes all topic partitions, reorders by capture sequence, ignores
+old-generation replay and deduplicates already applied sequences. Before
+interpreting an unfamiliar generation, it refreshes the control fence so a
+new snapshot arriving between status polls is not skipped. It retains a fetched
+batch while that control fence is unavailable.
+
+The sink must include `adj-in` route and withdrawal observations; filters that
+exclude them are rejected for this reference view. Other sources can coexist
+in the topic, but are not merged into Adj-RIB-In identity. Source peer, numeric
+AFI/SAFI, NLRI and remote Path-ID form its route key. Its digest includes routing
+attributes and source identity, excluding age and inspection-only flags.
+
+The consumer requests resynchronization automatically after capture loss or a
+no-progress sequence gap (`--gap-timeout`, default 15 seconds). Broker failures
+alone preserve durable data; when publishing/storage is unavailable, automatic
+requests wait for recovery instead of repeatedly replacing captures. A stale
+status response cannot erase already observed loss within one generation.
+Use one automatic recovery coordinator per manager; additional observers can
+set `--auto-resync=false` to avoid competing recovery requests.
+The gap timer requires a persisted snapshot end and a published sequence beyond
+the consumer. `last_published_sequence` is the highest sequence acknowledged by
+Kafka in this generation; acknowledgements may arrive out of order. A healthy
+snapshot being written or waiting behind durable replay does not trigger
+recovery solely because that timer elapsed. Publication beyond the consumer
+starts a fresh no-progress budget.
+
+JSON reports include generation, applied sequence, route count, digest,
+management availability and `consistent`. Consistency requires a validated
+snapshot, the reported producer watermark and a reachable management plane.
+Periodic status checks are part of the protocol; a consumer using only Kafka
+cannot certify that an unreported final ingress event was not lost.
+
+The library in `pkg/sink/kafka/reference` bounds reordered records (16,384),
+reorder bytes (32 MiB) and materialized routes (1,000,000); budget exhaustion
+invalidates its view. These are reference safety limits, not measured capacity
+claims. The collector's native bootstrap allocation and conventional unbounded
+watchers remain R05 work. Delivery remains at least once after durable commit.
+
+See [the isolated FRR laboratory](../../test/r04/README.md) and
+[issue #21](https://github.com/nishisan-dev/n-gobgp/issues/21).
 
 ## Kafka record JSON examples
 

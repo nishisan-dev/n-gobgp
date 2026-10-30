@@ -22,12 +22,12 @@ import (
 const maxInFlight = 256
 
 type sink struct {
+	capture                            atomic.Pointer[captureState]
 	windowSize                         int // zero uses maxInFlight; smaller windows support comparisons in benchmarks.
 	destination                        destination
 	producers                          map[string]producer
 	streamID                           string
 	snapshotFailed                     atomic.Bool
-	bootstrapCapture                   atomic.Uint32 // 0 collecting, 1 ingress loss, 2 capture complete
 	snapshotRecords                    int64
 	serializer                         event.Serializer
 	name                               string
@@ -58,6 +58,7 @@ func (s *sink) Offer(v event.Observation) bool {
 	value, err := s.serializer.Serialize(v.Message)
 	if err != nil {
 		s.snapshotFailed.Store(true)
+		s.invalidateCapture(lossSerialization)
 		s.metrics.serializationErrors.WithLabelValues(labels(s, v.Metadata)...).Inc()
 		return false
 	}
@@ -65,7 +66,11 @@ func (s *sink) Offer(v event.Observation) bool {
 }
 
 func (s *sink) offer(v event.Observation, value []byte, id string) bool {
-	r := &record{Version: 1, Value: value, Metadata: v.Metadata, Destination: &s.destination}
+	return s.offerCapture(v, value, id, s.capture.Load())
+}
+
+func (s *sink) offerCapture(v event.Observation, value []byte, id string, c *captureState) bool {
+	r := &record{capture: c, Version: 1, Value: value, Metadata: v.Metadata, Destination: &s.destination}
 	peer := v.Metadata.PeerAddress
 	if peer == "" {
 		peer = "local"
@@ -98,6 +103,10 @@ func (s *sink) offer(v event.Observation, value []byte, id string) bool {
 		{Key: "observed-at", Value: []byte(v.Metadata.ObservedAt.UTC().Format(time.RFC3339Nano))},
 		{Key: "event-id", Value: []byte(id)},
 	}
+	if c != nil {
+		r.captureSequence = c.sequence.Add(1)
+		r.Headers = append(r.Headers, kgo.RecordHeader{Key: "capture-contract", Value: []byte(CaptureContractVersion)}, kgo.RecordHeader{Key: "capture-generation", Value: []byte(c.generation)}, kgo.RecordHeader{Key: "capture-sequence", Value: []byte(strconv.FormatUint(r.captureSequence, 10))})
+	}
 	r.Headers = append(r.Headers, kgo.RecordHeader{Key: "stream-id", Value: []byte(s.streamID)})
 	if v.Metadata.SnapshotID != "" {
 		r.Headers = append(r.Headers, kgo.RecordHeader{Key: "snapshot-id", Value: []byte(v.Metadata.SnapshotID)}, kgo.RecordHeader{Key: "snapshot-phase", Value: []byte(v.Metadata.SnapshotPhase)})
@@ -116,6 +125,14 @@ func (s *sink) offer(v event.Observation, value []byte, id string) bool {
 		}
 	}
 	s.snapshotFailed.Store(true)
+	reason := lossQueue
+	if !s.healthy.Load() {
+		reason = lossStorage
+	}
+	if !s.accepting {
+		reason = lossClosed
+	}
+	c.invalidate(reason)
 	s.metrics.dropped.WithLabelValues(labels(s, r.Metadata)...).Inc()
 	return false
 }
@@ -131,6 +148,7 @@ func (s *sink) logError(message string, err error) {
 }
 
 func (s *sink) storageFailure(err error) {
+	s.invalidateCapture(lossStorage)
 	s.snapshotFailed.Store(true)
 	s.healthy.Store(false)
 	s.up.Store(false)
@@ -169,7 +187,16 @@ func (s *sink) writeLoop() {
 				s.persist(segment)
 				segment = nil
 				phase := "end"
-				if s.snapshotFailed.Load() {
+				failed := s.snapshotFailed.Load()
+				count := s.snapshotRecords
+				if c := r.capture; c != nil {
+					if c.snapshotID == "" || c.snapshotID != r.Metadata.SnapshotID {
+						c.invalidate(lossProtocol)
+					}
+					failed = c.lost.Load() != 0
+					count = c.count.Load()
+				}
+				if failed {
 					phase = "failed"
 					r.Metadata.SnapshotPhase = phase
 					s.metrics.snapshotFailures.WithLabelValues(s.config.Cluster, s.name, s.config.Topic).Inc()
@@ -179,7 +206,7 @@ func (s *sink) writeLoop() {
 						r.Headers[i].Value = []byte(phase)
 					}
 				}
-				r.Headers = append(r.Headers, kgo.RecordHeader{Key: "snapshot-records", Value: []byte(strconv.FormatInt(s.snapshotRecords, 10))})
+				r.Headers = append(r.Headers, kgo.RecordHeader{Key: "snapshot-records", Value: []byte(strconv.FormatInt(count, 10))})
 				s.persist([]*record{r})
 			} else {
 				segment = append(segment, r)
@@ -208,11 +235,32 @@ func (s *sink) persist(batch []*record) {
 	for _, r := range batch {
 		if r.Sequence != 0 {
 			s.metrics.persisted.WithLabelValues(labels(s, r.Metadata)...).Inc()
-			if r.Metadata.SnapshotPhase == "data" {
+			if c := r.capture; c != nil {
+				switch r.Metadata.SnapshotPhase {
+				case "begin":
+					if c.snapshotID != "" || r.Metadata.SnapshotID == "" {
+						c.invalidate(lossProtocol)
+					}
+					c.snapshotID = r.Metadata.SnapshotID
+				case "data":
+					if c.snapshotID != "" && c.snapshotID == r.Metadata.SnapshotID {
+						c.count.Add(1)
+					} else {
+						c.invalidate(lossProtocol)
+					}
+				case "end", "failed":
+					c.end.Store(r.captureSequence)
+				}
+			} else if r.Metadata.SnapshotPhase == "data" {
 				s.snapshotRecords++
 			}
 		} else {
 			s.snapshotFailed.Store(true)
+			reason := lossQuota
+			if !s.healthy.Load() {
+				reason = lossStorage
+			}
+			r.capture.invalidate(reason)
 			s.metrics.dropped.WithLabelValues(labels(s, r.Metadata)...).Inc()
 			if s.healthy.Load() {
 				s.logError("Kafka sink durable backlog full; preserving pending records", errSpoolFull)
@@ -317,6 +365,24 @@ func (s *sink) publishLoop() {
 				r := result.record
 				if result.err == nil {
 					success = append(success, r.Sequence)
+					// Spool replay carries headers, never live capture pointers.
+					// Publish progress belongs only to the current generation.
+					if c := s.capture.Load(); c != nil {
+						generation, sequence := "", ""
+						for _, h := range r.Headers {
+							switch h.Key {
+							case "capture-generation":
+								generation = string(h.Value)
+							case "capture-sequence":
+								sequence = string(h.Value)
+							}
+						}
+						if generation == c.generation {
+							if seq, err := strconv.ParseUint(sequence, 10, 64); err == nil && seq > c.published.Load() {
+								c.published.Store(seq)
+							}
+						}
+					}
 					s.metrics.published.WithLabelValues(deliveryLabels(s, r)...).Inc()
 					s.metrics.latency.WithLabelValues(deliveryLabels(s, r)...).Observe(time.Since(result.started).Seconds())
 				} else {
@@ -350,6 +416,7 @@ func (s *sink) publishLoop() {
 				failedLanes[lane] = true
 			} else if failedLanes[lane] {
 				paused = true
+				s.invalidateCapture(lossDelivery)
 				s.snapshotFailed.Store(true)
 				s.logError("Kafka delivery gap detected; publishing suspended; restart and reconcile consumer state", errors.New("a newer record was acknowledged after an earlier failure"))
 			}
