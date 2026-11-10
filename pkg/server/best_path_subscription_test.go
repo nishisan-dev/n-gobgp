@@ -89,6 +89,27 @@ func TestSubscribeBestPathsDeliversCurrentTableThenChanges(t *testing.T) {
 	require.Equal(t, []string{"-198.51.100.0/24"}, eventPrefixes(nextBestPathEvent(t, events)))
 }
 
+func TestSubscribeBestPathsReportsSessionsAndEndOfRib(t *testing.T) {
+	s := startBestPathTestServer(t)
+	events := make(chan BestPathEvent, 16)
+	sub, err := s.SubscribeBestPaths([]bgp.Family{bgp.RF_IPv4_UC}, func(ev BestPathEvent) { events <- ev })
+	require.NoError(t, err)
+	t.Cleanup(sub.Stop)
+	require.True(t, nextBestPathEvent(t, events).Initial)
+
+	peer := netip.MustParseAddr("192.0.2.1")
+	info := &table.PeerInfo{Address: peer, AS: 65002}
+	s.notifyWatcher(watchEventTypePeerState, &watchEventPeer{Type: apiutil.PEER_EVENT_STATE, PeerAddress: peer, State: bgp.BGP_FSM_OPENCONFIRM, OldState: bgp.BGP_FSM_OPENSENT})
+	s.notifyWatcher(watchEventTypePeerState, &watchEventPeer{Type: apiutil.PEER_EVENT_STATE, PeerAddress: peer, State: bgp.BGP_FSM_ESTABLISHED, OldState: bgp.BGP_FSM_OPENCONFIRM})
+	s.notifyWatcher(watchEventTypeEor, &watchEventEor{Family: bgp.RF_IPv6_UC, PeerInfo: info})
+	s.notifyWatcher(watchEventTypeEor, &watchEventEor{Family: bgp.RF_IPv4_UC, PeerInfo: info})
+	s.notifyWatcher(watchEventTypePeerState, &watchEventPeer{Type: apiutil.PEER_EVENT_STATE, PeerAddress: peer, State: bgp.BGP_FSM_IDLE, OldState: bgp.BGP_FSM_ESTABLISHED})
+
+	require.Equal(t, &PeerEvent{Address: peer, Established: true}, nextBestPathEvent(t, events).Peer, "only transitions of the established state are reported")
+	require.Equal(t, &PeerEvent{Address: peer, Established: true, EndOfRib: true, Family: bgp.RF_IPv4_UC}, nextBestPathEvent(t, events).Peer, "other families are filtered out")
+	require.Equal(t, &PeerEvent{Address: peer}, nextBestPathEvent(t, events).Peer)
+}
+
 func TestSubscribeBestPathsDoesNotDropWhileCallbackIsBlocked(t *testing.T) {
 	s := startBestPathTestServer(t)
 	release := make(chan struct{})
