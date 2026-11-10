@@ -47,6 +47,7 @@ import (
 
 	"github.com/osrg/gobgp/v4/internal/pkg/version"
 	"github.com/osrg/gobgp/v4/pkg/config"
+	"github.com/osrg/gobgp/v4/pkg/fib"
 	"github.com/osrg/gobgp/v4/pkg/metrics"
 	"github.com/osrg/gobgp/v4/pkg/server"
 	kafkasink "github.com/osrg/gobgp/v4/pkg/sink/kafka"
@@ -187,6 +188,14 @@ func main() {
 			os.Exit(1)
 		}
 		logger.Info("Finished reading the config file", slog.String("File", opts.ConfigFile))
+		warnings, err := fib.Validate(c)
+		if err != nil {
+			logger.Error("Invalid fib configuration", slog.String("File", opts.ConfigFile), slog.String("Error", err.Error()))
+			os.Exit(1)
+		}
+		for _, w := range warnings {
+			logger.Warn(w, slog.String("Topic", "Fib"))
+		}
 		if opts.LogLevel == "debug" {
 			pretty.Println(c)
 		}
@@ -307,8 +316,30 @@ func main() {
 	}
 	defer closeKafka()
 
+	// The fib follows the RIB from before the neighbors are configured, so it
+	// observes every best path from the start.
+	var fibManager *fib.Manager
+	if initialConfig.Fib.Enabled {
+		fibManager, err = fib.New(initialConfig, logger)
+		if err == nil {
+			err = fibManager.Start(bgpServer)
+		}
+		if err != nil {
+			closeKafka()
+			logger.Error("Failed to start the fib", slog.String("Error", err.Error()))
+			os.Exit(1)
+		}
+	}
+	closeFib := func() {
+		if fibManager != nil {
+			fibManager.Close()
+		}
+	}
+	defer closeFib()
+
 	currentConfig, err := config.InitialConfig(context.Background(), bgpServer, initialConfig, opts.GracefulRestart)
 	if err != nil {
+		closeFib()
 		closeKafka()
 		logger.Error("Failed to apply initial configuration", slog.String("File", opts.ConfigFile), slog.String("Error", err.Error()))
 		os.Exit(1)
@@ -333,6 +364,7 @@ func main() {
 
 	for sig := range sigCh {
 		if sig != syscall.SIGHUP {
+			closeFib()
 			closeKafka()
 			stopServer(bgpServer, opts.UseSdNotify)
 			return
@@ -350,6 +382,10 @@ func main() {
 			logger.Warn("Kafka configuration changes require a restart; keeping the active Kafka configuration")
 		}
 		newConfig.Kafka = initialConfig.Kafka
+		if !reflect.DeepEqual(initialConfig.Fib, newConfig.Fib) {
+			logger.Warn("Fib configuration changes require a restart; keeping the active fib configuration")
+		}
+		newConfig.Fib = initialConfig.Fib
 
 		currentConfig, err = config.UpdateConfig(context.Background(), bgpServer, currentConfig, newConfig)
 		if err != nil {
