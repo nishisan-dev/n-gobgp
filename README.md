@@ -58,6 +58,18 @@ a daemon restart.
 | [Kafka record JSON examples](docs/sources/kafka-event-sinks.md#kafka-record-json-examples) | IPv4/IPv6, BGP-LS node/link/prefix, withdraw, EOR, peer state and snapshot controls; [reusable JSON file](docs/examples/kafka-records.json) |
 | [Kafka integration tests and benchmark](test/kafka/README.md) | Two-cluster delivery tests and publication throughput with a single peer key |
 
+### Project extensions: policy-based Linux forwarding
+
+The optional `fib` section installs BGP routes in Linux tables through exit
+paths (interface and gateway) chosen by rules on BGP attributes, with failover
+between links, anchors for the BGP session and managed `ip rule` entries. It
+is disabled by default and starts in an observe-only mode.
+
+| Guide | What it covers |
+| --- | --- |
+| [Policy-based Linux forwarding](docs/sources/linux-fib.md) | Network design, configuration, failover, restart, default route and coexistence |
+| [Complete TOML configuration](docs/examples/fib.toml) | Two links to one CPE with eBGP multihop between loopbacks |
+
 ### Using GoBGP
 
 The following guides cover the BGP features available in this checkout. For

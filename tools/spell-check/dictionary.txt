@@ -20,6 +20,7 @@ etree
 evpn
 fapm
 flowspec
+fwmark
 gobgp
 gobgpd
 goroutine
@@ -36,6 +37,7 @@ keepalive
 keepalives
 keychain
 lifecycle
+linux
 llgr
 localhost
 messageloop
@@ -45,6 +47,7 @@ mtid
 multicast
 multihop
 multipath
+namespaces
 nexthop
 nexthops
 nlri
@@ -67,6 +70,7 @@ srgb
 srlg
 srpolicy
 subcode
+subnet
 syscall
 syslog
 teid
