@@ -164,6 +164,32 @@ func TestEngineNeverMatchesTheDefaultRouteWithGenericRules(t *testing.T) {
 		e.Evaluate(testPath(t, "0.0.0.0/0", pathSpec{})))
 }
 
+func TestEngineInstallsTheDefaultRouteOnlyThroughItsOwnSection(t *testing.T) {
+	defaultRoute := `
+[fib.default-route]
+mode = "table"
+table = 300
+exit-paths = ["wan2"]
+[fib.default-route.conditions.bgp-conditions.match-community-set]
+community-set = "via-wan2"
+`
+	e, err := NewEngine(testConfig(t, testSets+testFib+defaultRoute))
+	require.NoError(t, err)
+	def := netip.MustParsePrefix("0.0.0.0/0")
+	require.Equal(t, Decision{Prefix: def, Action: ActionInstall, Rule: DefaultRouteRule, Reason: ReasonRule, Table: 300, ExitPaths: []string{"wan2"}},
+		e.Evaluate(testPath(t, "0.0.0.0/0", pathSpec{communities: []uint32{65002<<16 | 200}})))
+	require.Equal(t, Decision{Prefix: def, Action: ActionIgnore, Reason: ReasonDefaultNoMatch},
+		e.Evaluate(testPath(t, "0.0.0.0/0", pathSpec{})))
+
+	e, err = NewEngine(testConfig(t, testSets+testFib+"[fib.default-route]\nmode = \"main\"\nexit-paths = [\"wan1\", \"wan2\"]\n"))
+	require.NoError(t, err)
+	require.Equal(t, Decision{Prefix: def, Action: ActionInstall, Rule: DefaultRouteRule, Reason: ReasonRule, Table: oc.FIB_TABLE_MAIN, ExitPaths: []string{"wan1", "wan2"}},
+		e.Evaluate(testPath(t, "0.0.0.0/0", pathSpec{})))
+
+	_, err = NewEngine(testConfig(t, testSets+testFib+"[fib.default-route]\nmode = \"main\"\nexit-paths = [\"wan1\"]\n[fib.default-route.conditions]\ncall-policy = \"x\"\n"))
+	require.ErrorContains(t, err, "default-route")
+}
+
 func TestEngineRejectsUnresolvableOrUnsupportedConditions(t *testing.T) {
 	cases := map[string]struct{ conditions, err string }{
 		"unknown set":    {"[fib.rules.conditions.match-prefix-set]\nprefix-set = \"missing\"", "missing"},

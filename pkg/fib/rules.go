@@ -17,9 +17,13 @@ const (
 	ActionInstall = oc.FIB_ACTION_INSTALL
 	ActionIgnore  = oc.FIB_ACTION_IGNORE
 
-	ReasonRule         = "rule"
-	ReasonNoMatch      = "no matching rule"
-	ReasonDefaultRoute = "default route"
+	ReasonRule           = "rule"
+	ReasonNoMatch        = "no matching rule"
+	ReasonDefaultRoute   = "default route"
+	ReasonDefaultNoMatch = "default route conditions not matched"
+
+	// DefaultRouteRule names decisions taken by the default-route section.
+	DefaultRouteRule = "default-route"
 )
 
 // Decision is the forwarding outcome for one destination. ExitPaths are in
@@ -45,7 +49,10 @@ type rule struct {
 
 // Engine evaluates the configured rules. It is immutable after construction.
 type Engine struct {
-	rules []rule
+	rules        []rule
+	defaultRoute oc.FibDefaultRoute
+	// defaultMatch is nil when the default route is ignored.
+	defaultMatch *table.Statement
 }
 
 func unsupportedConditions(c oc.Conditions) error {
@@ -79,6 +86,16 @@ func NewEngine(c *oc.BgpConfigSet) (*Engine, error) {
 		e.rules = append(e.rules, rule{config: r, statement: s})
 	}
 	sort.Slice(e.rules, func(i, j int) bool { return e.rules[i].config.Priority < e.rules[j].config.Priority })
+	if d := c.Fib.DefaultRoute; d.Mode != "" && d.Mode != oc.FIB_DEFAULT_ROUTE_IGNORE {
+		if err := unsupportedConditions(d.Conditions); err != nil {
+			return nil, fmt.Errorf("fib default-route: %w", err)
+		}
+		s, err := table.NewMatchStatement(DefaultRouteRule, c.DefinedSets, d.Conditions)
+		if err != nil {
+			return nil, fmt.Errorf("fib default-route: %w", err)
+		}
+		e.defaultRoute, e.defaultMatch = d, s
+	}
 	return e, nil
 }
 
@@ -90,12 +107,21 @@ func pathPrefix(path *table.Path) (netip.Prefix, bool) {
 }
 
 // Evaluate returns the decision of the matching rule with the lowest
-// priority. The default route is never matched by these rules.
+// priority. The default route is never matched by these rules, only by the
+// default-route section.
 func (e *Engine) Evaluate(path *table.Path) Decision {
 	prefix, _ := pathPrefix(path)
 	d := Decision{Prefix: prefix, Action: ActionIgnore}
 	if prefix.Bits() == 0 {
-		d.Reason = ReasonDefaultRoute
+		switch {
+		case e.defaultMatch == nil:
+			d.Reason = ReasonDefaultRoute
+		case !e.defaultMatch.Evaluate(path, nil):
+			d.Reason = ReasonDefaultNoMatch
+		default:
+			d.Action, d.Rule, d.Reason = ActionInstall, DefaultRouteRule, ReasonRule
+			d.Table, d.ExitPaths = e.defaultRoute.TableID, e.defaultRoute.ExitPaths
+		}
 		return d
 	}
 	for _, r := range e.rules {

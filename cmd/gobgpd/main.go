@@ -322,6 +322,9 @@ func main() {
 	if initialConfig.Fib.Enabled {
 		fibManager, err = fib.New(initialConfig, logger)
 		if err == nil {
+			err = fibManager.Register(prometheus.DefaultRegisterer)
+		}
+		if err == nil {
 			err = fibManager.Start(bgpServer)
 		}
 		if err != nil {
