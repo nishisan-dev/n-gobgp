@@ -861,10 +861,32 @@ jobs:
           path: ${{ runner.temp }}/r04-lab
           if-no-files-found: warn
 
+  r11-fib:
+    name: R11 Linux forwarding
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.3"
+      - name: allow unprivileged network namespaces
+        # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor.
+        run: |
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: verify kernel programming in network namespaces
+        env:
+          FIB_REQUIRE_NETNS: "1"
+        run: go test -race ./pkg/fib -count=1 -timeout=180s
+      - name: run the two-daemon forwarding laboratory
+        run: bash test/fib/lab.sh
+
   required:
     name: required
     if: ${{ always() }}
-    needs: [crossbuild, unit, kafka-events, unit386, protobuf-check, yang-check, golangci, embedded, lintdoc, build, router, evpn, flowspec, global-policy, graceful-restart, ibgp, rr, as2, ipv4-v6, malformed, rs-policy-grpc, rs-policy, softreset, rs1, rs2, llgr, vrf-neighbor1, vrf-neighbor2, rtc, unnumbered, aspath, addpath, malformed-handling, confederation, zebra, zebra-nht, zapi-v3, zapi-v3-multipath, mup, bgp-ls, tcp-md5, tcp-ao, build-identity, r03-protocol, r04-recovery]
+    needs: [crossbuild, unit, kafka-events, unit386, protobuf-check, yang-check, golangci, embedded, lintdoc, build, router, evpn, flowspec, global-policy, graceful-restart, ibgp, rr, as2, ipv4-v6, malformed, rs-policy-grpc, rs-policy, softreset, rs1, rs2, llgr, vrf-neighbor1, vrf-neighbor2, rtc, unnumbered, aspath, addpath, malformed-handling, confederation, zebra, zebra-nht, zapi-v3, zapi-v3-multipath, mup, bgp-ls, tcp-md5, tcp-ao, build-identity, r03-protocol, r04-recovery, r11-fib]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
