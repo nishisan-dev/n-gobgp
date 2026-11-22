@@ -304,6 +304,18 @@ Metrics, under `gobgp_fib_`:
 
 The laboratory in `test/fib/lab.sh` runs two `gobgpd` processes in
 unprivileged network namespaces and exercises the behaviour described here.
+The launcher also creates a PID namespace. Its init process supervises the lab
+shell, which tracks the CPE, server and continuity monitor, requests graceful
+termination on exit and kills unresponsive children after five seconds. The
+init handles interruptions while the shell is blocked. Killing the launcher
+also terminates the namespace and its descendants. Logs remain in the printed
+lab directory.
+
+On the authorized Linux test host, run `python3 test/fib/test_lab_cleanup.py`
+to check cleanup after success, command failure, interruption, termination and
+forced exits. This regression uses disposable daemon and network-command
+fixtures with the real namespace launcher. Run `bash test/fib/lab.sh` for the
+full forwarding checks with real daemons.
 
 ## Limitations
 

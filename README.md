@@ -39,6 +39,9 @@ configuration, then start the daemon and inspect its peers:
 ./bin/gobgp neighbor
 ```
 
+CI runs on a [dedicated self-hosted runner](.github/runner/README.md) on the
+validation VM, with a separate Docker daemon for the scenario laboratories.
+
 ## Documentation
 
 ### Project extensions: Kafka event sinks

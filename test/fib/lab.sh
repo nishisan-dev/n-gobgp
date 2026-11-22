@@ -7,20 +7,75 @@
 #   wan1 10.0.1.2/24  <--- veth --->  c1 10.0.1.1/24
 #   wan2 10.0.2.2/24  <--- veth --->  c2 10.0.2.1/24
 #
-# It runs without privileges inside new user, network and mount namespaces.
+# It runs without privileges inside new user, network, mount and PID namespaces.
 # Usage: test/fib/lab.sh   (builds gobgpd and gobgp from this checkout)
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-if [ "${FIB_LAB_INNER:-}" != 1 ]; then
+if [ "${FIB_LAB_INNER:-}" != 1 ] && [ "${FIB_LAB_INNER:-}" != 2 ]; then
 	WORK=$(mktemp -d "${TMPDIR:-/tmp}/fib-lab.XXXXXX")
 	go build -C "$ROOT" -o "$WORK/gobgpd" ./cmd/gobgpd
 	go build -C "$ROOT" -o "$WORK/gobgp" ./cmd/gobgp
 	echo "lab directory: $WORK"
-	exec unshare -rnm --propagation private env FIB_LAB_INNER=1 WORK="$WORK" "$0" "$@"
+	# The namespace init owns every descendant. If the launcher is killed,
+	# --kill-child kills init and the kernel tears down its entire process tree.
+	exec unshare -rnm --pid --fork --kill-child=KILL --mount-proc --propagation private \
+		env FIB_LAB_INNER=1 WORK="$WORK" "$0" "$@"
+fi
+
+if [ "$FIB_LAB_INNER" = 1 ]; then
+	if [ "$$" != 1 ]; then
+		echo "The inner lab must run as PID 1. Start the lab without FIB_LAB_INNER." >&2
+		exit 1
+	fi
+	# A trap can be deferred while Bash waits for a foreground command. Keep
+	# namespace init in the interruptible wait builtin and run the lab below it.
+	trap 'exit 129' HUP
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
+	FIB_LAB_INNER=2 "$0" "$@" &
+	lab_pid=$!
+	cd "$WORK"
+	status=0
+	wait "$lab_pid" || status=$?
+	exit "$status"
 fi
 
 cd "$WORK"
+SERVER_PID=
+CPE_PID=
+WATCH=
+cleanup() {
+	local status=$?
+	trap - EXIT
+	trap '' HUP INT TERM
+	local pids=() pid watchdog
+	for pid in "$SERVER_PID" "$CPE_PID" "$WATCH"; do
+		if [ -n "$pid" ]; then
+			pids+=("$pid")
+		fi
+	done
+	if [ ${#pids[@]} -gt 0 ]; then
+		kill -TERM -- "${pids[@]}" 2>/dev/null || true
+		# Bound graceful shutdown even if a daemon stops responding to SIGTERM.
+		(
+			sleep 5
+			kill -KILL -- "${pids[@]}" 2>/dev/null || true
+		) &
+		watchdog=$!
+		for pid in "${pids[@]}"; do
+			wait "$pid" 2>/dev/null || true
+		done
+		kill -KILL "$watchdog" 2>/dev/null || true
+		wait "$watchdog" 2>/dev/null || true
+	fi
+	exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 FAILED=0
 pass() { echo "PASS $*"; }
 fail() {
@@ -202,14 +257,13 @@ table = 300
 exit-paths = ["wan1", "wan2"]
 EOF
 
-SERVER_PID=
 start_server() {
 	./gobgpd -f server.toml -p --api-hosts 127.0.0.1:50061 --pprof-disable --metrics-path "" >>server.log 2>&1 &
 	SERVER_PID=$!
 }
-cpe ./gobgpd -f cpe.toml -p --api-hosts 127.0.0.1:50062 --pprof-disable --metrics-path "" >cpe.log 2>&1 &
+# Keep the daemon itself as our child, instead of backgrounding a shell function.
+ip netns exec cpe ./gobgpd -f cpe.toml -p --api-hosts 127.0.0.1:50062 --pprof-disable --metrics-path "" >cpe.log 2>&1 &
 CPE_PID=$!
-trap 'kill $SERVER_PID $CPE_PID 2>/dev/null || true' EXIT
 sleep 1
 cpe_cli global rib add 198.51.100.0/24 -a ipv4
 cpe_cli global rib add 203.0.113.0/24 community 65002:200 -a ipv4
@@ -282,6 +336,7 @@ echo "== crash and restart"
 wait_for 10 "anchor on wan1 before the crash" route_via main 192.0.2.10/32 10.0.1.1 wan1
 kill -9 $SERVER_PID
 wait $SERVER_PID 2>/dev/null || true
+SERVER_PID=
 has_route table 100 198.51.100.0/24 proto 200 && pass "routes survive the crash" || fail "routes lost on crash"
 cpe_cli global rib del 203.0.113.0/24 -a ipv4
 (
@@ -297,12 +352,14 @@ start_server
 wait_for 20 "session after restart" established
 wait_for 15 "route withdrawn while down is reconciled away" no_route table 100 203.0.113.0/24
 wait $WATCH
+WATCH=
 [ ! -s continuity.log ] && pass "no gap for confirmed routes and the anchor during the restart" || fail "forwarding gap during restart"
 grep -q "fib reconciled the routes of the previous run" server.log && pass "reconciliation logged" || fail "no reconciliation"
 
 echo "== clean stop"
 kill -TERM $SERVER_PID
 wait $SERVER_PID 2>/dev/null || true
+SERVER_PID=
 owned_objects && fail "owned objects left after stop" || pass "no owned routes or rules after stop"
 ip route show 10.10.0.0/16 | grep -q "proto static" && pass "foreign route in main intact" || fail "foreign route touched"
 ip route show table 100 192.0.2.99 | grep -q "proto static" && pass "foreign route in table 100 intact" || fail "foreign table route touched"
@@ -321,6 +378,7 @@ cpe_cli global rib add 0.0.0.0/0 -a ipv4
 wait_for 5 "BGP default installed again" route_via main 0.0.0.0/0 10.0.1.1 wan1
 kill -TERM $SERVER_PID
 wait $SERVER_PID 2>/dev/null || true
+SERVER_PID=
 ip route show default | grep -q "via 10.0.2.1 dev wan2 proto dhcp metric 20" && pass "clean stop restores the foreign default" || fail "foreign default lost"
 owned_objects && fail "owned objects left after stop" || pass "no owned routes or rules after the second stop"
 

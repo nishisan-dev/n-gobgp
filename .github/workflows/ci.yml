@@ -21,7 +21,7 @@ jobs:
       matrix:
         GOOS: ["freebsd", "openbsd", "darwin", "windows"]
         GOARCH: ["amd64"]
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -37,7 +37,7 @@ jobs:
 
   unit:
     name: unit
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -49,7 +49,7 @@ jobs:
 
   kafka-events:
     name: Kafka event sink integration
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -68,7 +68,7 @@ jobs:
 
   unit386:
     name: unit386
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     env:
       GOARCH: 386
       CGO_ENABLED: 1
@@ -85,7 +85,7 @@ jobs:
 
   protobuf-check:
     name: protobuf lint and format check
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -112,7 +112,7 @@ jobs:
 
   yang-check:
     name: generated YANG files check
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -173,7 +173,7 @@ jobs:
 
   golangci:
     name: lint
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -186,7 +186,7 @@ jobs:
 
   embedded:
     name: embedded
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -198,9 +198,12 @@ jobs:
 
   lintdoc:
     name: lintdoc
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.3"
       - run: |
           npm install markdownlint-cli
           ./node_modules/.bin/markdownlint $(find . -type d -name 'node_modules' -prune -o -type f -name '*.md' -print)
@@ -212,7 +215,7 @@ jobs:
 
   build:
     name: build container image
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     permissions:
       contents: read
       actions: write
@@ -239,7 +242,7 @@ jobs:
 
   router:
     name: router
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -256,7 +259,7 @@ jobs:
 
   evpn:
     name: evpn
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -273,7 +276,7 @@ jobs:
 
   flowspec:
     name: flowspec
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -290,7 +293,7 @@ jobs:
 
   global-policy:
     name: global-policy
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -307,7 +310,7 @@ jobs:
 
   graceful-restart:
     name: graceful-restart
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -324,7 +327,7 @@ jobs:
 
   ibgp:
     name: ibgp
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -341,7 +344,7 @@ jobs:
 
   rr:
     name: route-refector
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -358,7 +361,7 @@ jobs:
 
   as2:
     name: as2
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -375,7 +378,7 @@ jobs:
 
   ipv4-v6:
     name: ipv4-v6
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -387,7 +390,7 @@ jobs:
         run: |
           echo  "{\"ipv6\": true,\"fixed-cidr-v6\": \"2001:db8:1::/64\"}" > daemon.json
           sudo cp daemon.json /etc/docker
-          sudo systemctl restart docker
+          sudo ngobgp-ci-docker restart
           docker load < artifact/gobgp.tar
           sudo apt-get install python3-setuptools
           sudo pip3 install -r test/pip-requires.txt
@@ -395,7 +398,7 @@ jobs:
 
   malformed:
     name: malformed
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -412,7 +415,7 @@ jobs:
 
   rs-policy-grpc:
     name: rs-policy-grpc
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -429,7 +432,7 @@ jobs:
 
   rs-policy:
     name: rs-policy
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -443,7 +446,7 @@ jobs:
           sudo sysctl -w net.ipv6.conf.default.disable_ipv6=0
           sudo sysctl -w net.ipv6.conf.all.forwarding=1
           echo '{"ipv6": true, "fixed-cidr-v6": "2001:db8:1::/64"}' | sudo tee /etc/docker/daemon.json
-          sudo systemctl restart docker
+          sudo ngobgp-ci-docker restart
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -453,7 +456,7 @@ jobs:
 
   softreset:
     name: softreset
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -470,7 +473,7 @@ jobs:
 
   rs1:
     name: routeserver1
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -487,7 +490,7 @@ jobs:
 
   rs2:
     name: routeserver2
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -504,7 +507,7 @@ jobs:
 
   llgr:
     name: llgr
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -521,7 +524,7 @@ jobs:
 
   vrf-neighbor1:
     name: vrf-neighbor1
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -538,7 +541,7 @@ jobs:
 
   vrf-neighbor2:
     name: vrf-neighbor2
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -555,7 +558,7 @@ jobs:
 
   rtc:
     name: rtc
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -572,7 +575,7 @@ jobs:
 
   unnumbered:
     name: unnumbered
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -584,7 +587,7 @@ jobs:
         run: |
           echo  "{\"ipv6\": true,\"fixed-cidr-v6\": \"2001:db8:1::/64\"}" > daemon.json
           sudo cp daemon.json /etc/docker
-          sudo systemctl restart docker
+          sudo ngobgp-ci-docker restart
           # don't assign ipv6 addresss to docker0 bridge so two containers have p2p link.
           sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0
           sudo sysctl -w net.ipv6.conf.default.disable_ipv6=0
@@ -596,7 +599,7 @@ jobs:
 
   aspath:
     name: aspath
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -613,7 +616,7 @@ jobs:
 
   addpath:
     name: addpath
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -630,7 +633,7 @@ jobs:
 
   malformed-handling:
     name: malformed-handling
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -647,7 +650,7 @@ jobs:
 
   confederation:
     name: confederation
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -664,7 +667,7 @@ jobs:
 
   zebra:
     name: zebra
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -681,7 +684,7 @@ jobs:
 
   zebra-nht:
     name: zebra-nht
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -698,7 +701,7 @@ jobs:
 
   zapi-v3:
     name: zapi-v3
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -715,7 +718,7 @@ jobs:
 
   zapi-v3-multipath:
     name: zapi-v3-multipath
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -732,7 +735,7 @@ jobs:
 
   mup:
     name: mup
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -749,7 +752,7 @@ jobs:
 
   bgp-ls:
     name: bgp-ls
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -766,7 +769,7 @@ jobs:
 
   tcp-md5:
     name: tcp-md5
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -783,7 +786,7 @@ jobs:
 
   tcp-ao:
     name: tcp-ao
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
@@ -800,7 +803,7 @@ jobs:
 
   build-identity:
     name: build identity and release contract
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -818,7 +821,7 @@ jobs:
 
   r03-protocol:
     name: R03 protocol regressions
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
@@ -838,7 +841,7 @@ jobs:
 
   r04-recovery:
     name: R04 Kafka capture recovery
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
@@ -863,23 +866,21 @@ jobs:
 
   r11-fib:
     name: R11 Linux forwarding
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
-      - name: allow unprivileged network namespaces
-        # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor.
-        run: |
-          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          fi
+      - name: require network namespace support
+        run: unshare -rnm true
       - name: verify kernel programming in network namespaces
         env:
           FIB_REQUIRE_NETNS: "1"
         run: go test -race ./pkg/fib -count=1 -timeout=180s
+      - name: verify forwarding lab process cleanup
+        run: python3 test/fib/test_lab_cleanup.py
       - name: run the two-daemon forwarding laboratory
         run: bash test/fib/lab.sh
 
@@ -887,7 +888,7 @@ jobs:
     name: required
     if: ${{ always() }}
     needs: [crossbuild, unit, kafka-events, unit386, protobuf-check, yang-check, golangci, embedded, lintdoc, build, router, evpn, flowspec, global-policy, graceful-restart, ibgp, rr, as2, ipv4-v6, malformed, rs-policy-grpc, rs-policy, softreset, rs1, rs2, llgr, vrf-neighbor1, vrf-neighbor2, rtc, unnumbered, aspath, addpath, malformed-handling, confederation, zebra, zebra-nht, zapi-v3, zapi-v3-multipath, mup, bgp-ls, tcp-md5, tcp-ao, build-identity, r03-protocol, r04-recovery, r11-fib]
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - name: require every validation to succeed
