@@ -27,6 +27,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - run: |
           go env
           go build ./cmd/gobgp
@@ -43,6 +44,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - run: |
           go test -v -race -timeout 240s ./...
           if [ "$(go env GOARCH)" = "amd64" ]; then go test -v -race github.com/osrg/gobgp/v4/pkg/packet/bgp -run ^Test_RaceCondition$; else echo 'skip'; fi
@@ -55,6 +57,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - name: start disposable brokers
         run: docker compose -f test/kafka/docker-compose.yml up -d
       - name: verify publication to multiple clusters
@@ -77,6 +80,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - run: |
           sudo apt update
           sudo apt install -y gcc-multilib g++-multilib
@@ -91,6 +95,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - run: go install github.com/bufbuild/buf/cmd/buf@latest
 
       - name: buf lint
@@ -118,6 +123,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -179,6 +185,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
@@ -192,6 +199,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - run: |
           python test/scenario_test/ci-scripts/build_embedded_go.py docs/sources/lib.md
           python test/scenario_test/ci-scripts/build_embedded_go.py docs/sources/bgp-ls.md
@@ -204,6 +212,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - run: |
           npm install markdownlint-cli
           ./node_modules/.bin/markdownlint $(find . -type d -name 'node_modules' -prune -o -type f -name '*.md' -print)
@@ -225,6 +234,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - name: container image
         run: |
           test/lib/make-gobgp-ctn.sh --tag gobgp --from-image osrg/quagga
@@ -811,6 +821,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - run: python3 tools/test-ci-gate.py
       - run: python3 tools/test-ci-ensure-vrf.py
       - run: tools/check-build.sh
@@ -828,6 +839,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - name: verify BGP recovery after RPKI, VRF, refresh, GR and LLGR changes
         env:
           GORACE: halt_on_error=1
@@ -848,6 +860,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - name: verify loss detection and the bounded reference consumer
         run: go test -race ./pkg/sink/kafka/... -run 'TestCapture|TestReference' -count=3 -timeout=120s
       - name: exercise live recovery through an independent FRR reflector
@@ -873,6 +886,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - name: require network namespace support
         run: unshare -rnm true
       - name: verify kernel programming in network namespaces

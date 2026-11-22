@@ -8,8 +8,8 @@
     "test/fib/lab.sh": "24330ecee0f03a379a75a8c3cd8ec7c384d3de40a50895d6f3c94b7fd3d10a58",
     "test/fib/test_lab_cleanup.py": "024ddabed0820dc545598a345d2e64b68239a4e25cf9f3fdae18b07395f2d216",
     "pkg/fib/manager.go": "2b98a201cfde7c82aca633fad0ab8c8384f2bb0033f1c935dfbdaa3b88973add",
-    ".github/workflows/ci.yml": "51163c4167c80347f9ef91643b4f453345ba1aedc9806266b710f13ffea23c7f",
-    ".github/workflows/release.yml": "3575202c1cd57a1cd7ae50b177653db6b2cfb0b35133ba206f71b736ae5c7e34"
+    ".github/workflows/ci.yml": "170f4814a0a01c2a81848af5a76ea166dc88040d62998721f20e9efdeed7d3f4",
+    ".github/workflows/release.yml": "598a13d793dac33dd4e2ca3d8fde777da3654e716c1b663c5f4d29c126085408"
   },
   "excluded_user_work": [
     "Uncommitted pkg/fib/manager.go changes",
@@ -55,5 +55,17 @@
     "same_lab_script_sha256": "24330ecee0f03a379a75a8c3cd8ec7c384d3de40a50895d6f3c94b7fd3d10a58"
   },
   "remaining_lab_processes": [],
-  "validation_log": "r11-fib-cleanup-vm-validation.log"
+  "validation_log": "r11-fib-cleanup-vm-validation.log",
+  "self_hosted_smoke": {
+    "execution_host": "root@192.168.7.2",
+    "runner": "n-gobgp-vm192-1",
+    "checks": [
+      "Private Docker daemon responds",
+      "User/network namespace creation",
+      "VRF creation in disposable network namespace",
+      "Two consecutive job-start hooks",
+      "Daemon environment excludes RUNNER_TRACKING_ID"
+    ],
+    "status": "PASS"
+  }
 }

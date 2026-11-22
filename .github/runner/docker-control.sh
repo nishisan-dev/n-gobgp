@@ -4,7 +4,9 @@ set -euo pipefail
 pidfile=/run/ngobgp-dockerd.pid
 start() {
     if docker info >/dev/null 2>&1; then return; fi
-    dockerd --pidfile="$pidfile" > /var/log/ngobgp-dockerd.log 2>&1 &
+    # The daemon belongs to the runner, not to a job orphan-cleanup scope.
+    env -u RUNNER_TRACKING_ID nohup dockerd --pidfile="$pidfile" \
+        </dev/null > /var/log/ngobgp-dockerd.log 2>&1 &
     for ((attempt=0; attempt<60; attempt++)); do
         if docker info >/dev/null 2>&1; then return; fi
         sleep 1

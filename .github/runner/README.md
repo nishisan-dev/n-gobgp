@@ -9,6 +9,9 @@ names. Its privileged container has a private Docker daemon and storage volume;
 it does not mount the host Docker socket or host credentials. Restarting Docker
 from a scenario affects only this daemon. A job-start hook removes containers and
 unused networks and restores the default daemon configuration between jobs.
+The daemon runs without the job tracking identifier so Actions orphan cleanup
+does not terminate it between jobs. Go caches remain on the dedicated runner;
+setup-go artifact caching is disabled to avoid transferring them for every job.
 The outer bridge uses `10.231.90.0/24` to avoid the scenario subnets.
 
 The container is limited to three CPUs, 8 GiB of memory and 4096 processes.
