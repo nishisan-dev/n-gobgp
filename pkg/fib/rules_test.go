@@ -127,16 +127,31 @@ func TestEngineSelectsLowestPriorityMatchingRule(t *testing.T) {
 		spec   pathSpec
 		want   Decision
 	}{
-		{"community beats prefix", "198.51.100.0/24", pathSpec{communities: []uint32{65002<<16 | 200}},
-			Decision{Action: ActionInstall, Rule: "community-wan2", Table: 100, ExitPaths: []string{"wan2", "wan1"}}},
-		{"prefix set", "198.51.100.128/25", pathSpec{},
-			Decision{Action: ActionInstall, Rule: "customers", Table: 100, ExitPaths: []string{"wan1"}}},
-		{"ignore rule beats prefix", "198.51.100.0/24", pathSpec{asPath: []uint32{65002, 65010}},
-			Decision{Action: ActionIgnore, Rule: "skip-65010", Reason: ReasonRule}},
-		{"next hop", "203.0.113.0/24", pathSpec{nexthop: "192.0.2.99"},
-			Decision{Action: ActionInstall, Rule: "next-hop", Table: 200, ExitPaths: []string{"wan2"}}},
-		{"catch-all", "203.0.113.0/24", pathSpec{},
-			Decision{Action: ActionInstall, Rule: "catch-all", Table: oc.FIB_TABLE_MAIN, ExitPaths: []string{"wan1", "wan2"}}},
+		{
+			"community beats prefix", "198.51.100.0/24",
+			pathSpec{communities: []uint32{65002<<16 | 200}},
+			Decision{Action: ActionInstall, Rule: "community-wan2", Table: 100, ExitPaths: []string{"wan2", "wan1"}},
+		},
+		{
+			"prefix set", "198.51.100.128/25",
+			pathSpec{},
+			Decision{Action: ActionInstall, Rule: "customers", Table: 100, ExitPaths: []string{"wan1"}},
+		},
+		{
+			"ignore rule beats prefix", "198.51.100.0/24",
+			pathSpec{asPath: []uint32{65002, 65010}},
+			Decision{Action: ActionIgnore, Rule: "skip-65010", Reason: ReasonRule},
+		},
+		{
+			"next hop", "203.0.113.0/24",
+			pathSpec{nexthop: "192.0.2.99"},
+			Decision{Action: ActionInstall, Rule: "next-hop", Table: 200, ExitPaths: []string{"wan2"}},
+		},
+		{
+			"catch-all", "203.0.113.0/24",
+			pathSpec{},
+			Decision{Action: ActionInstall, Rule: "catch-all", Table: oc.FIB_TABLE_MAIN, ExitPaths: []string{"wan1", "wan2"}},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

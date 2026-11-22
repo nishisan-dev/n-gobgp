@@ -44,8 +44,10 @@ type monitor struct {
 }
 
 func newMonitor(cfg oc.FibHealth, paths []oc.FibExitPath, c checker, onChange func(pathChange)) *monitor {
-	m := &monitor{cfg: cfg, paths: paths, checker: c, onChange: onChange,
-		health: map[string]*pathHealth{}, wake: map[string]chan struct{}{}, done: make(chan struct{})}
+	m := &monitor{
+		cfg: cfg, paths: paths, checker: c, onChange: onChange,
+		health: map[string]*pathHealth{}, wake: map[string]chan struct{}{}, done: make(chan struct{}),
+	}
 	for _, p := range paths {
 		m.health[p.Name] = newPathHealth(cfg)
 		m.wake[p.Name] = make(chan struct{}, 1)
@@ -128,7 +130,7 @@ func (m *monitor) run(p oc.FibExitPath) {
 		if err != nil {
 			errText = err.Error()
 		}
-		if changed || (errText != lastErr && errText != "" && !change.Usable) {
+		if changed || errText != lastErr && errText != "" && !change.Usable {
 			m.onChange(change)
 		}
 		lastErr = errText

@@ -67,5 +67,26 @@
       "Daemon environment excludes RUNNER_TRACKING_ID"
     ],
     "status": "PASS"
+  },
+  "post_lint_validation": {
+    "execution_host": "root@192.168.7.2",
+    "changes": "Formatting and explicit best-effort error discards only; no behavior changes",
+    "source_sha256": {
+      "pkg/config/oc/fib.go": "7b24ed5eae31e93668c428de86d305bb773c1ca0eee1fd9563592c01597f483c",
+      "pkg/fib/manager.go": "b7707c1954b7bbb85a0be4bc2644ae6257e8eaae9191a9b9f9f6450f1117f24c",
+      "pkg/fib/metrics.go": "70de3379edacc60441efa1ec1761a153c6bb37274c3fc8495c13aaeca4332eb6",
+      "pkg/fib/monitor.go": "b1b55ceed79cb0c438acf72b71e525f70dd7b94ffa00ba2c30494bd1aa2f7136",
+      "pkg/fib/rules_test.go": "d364226c2f82f009434dc7069cee5cab392facf63ddc5e3de19573b2b7312fe4"
+    },
+    "checks": [
+      {
+        "command": "golangci-lint v2.15.0 run",
+        "status": "PASS"
+      },
+      {
+        "command": "FIB_REQUIRE_NETNS=1 go test -race ./pkg/fib ./pkg/config/oc -count=1 -timeout=180s",
+        "status": "PASS"
+      }
+    ]
   }
 }

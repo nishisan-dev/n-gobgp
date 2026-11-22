@@ -274,7 +274,7 @@ func (m *Manager) cleanup() {
 	}
 	for key, r := range m.installed {
 		if m.owners[key] == "" {
-			m.removeRoute(r)
+			_ = m.removeRoute(r) // Errors are reported by removeRoute; cleanup continues.
 		}
 	}
 	if owned, _, err := m.kernel.listRules(); err == nil {
@@ -290,7 +290,7 @@ func (m *Manager) cleanup() {
 	// Anything left with the fib protocol number belongs to nobody else.
 	if owned, err := m.kernel.ownedRoutes(); err == nil {
 		for _, r := range owned {
-			m.removeRoute(r)
+			_ = m.removeRoute(r) // Errors are reported by removeRoute; cleanup continues.
 		}
 	}
 }

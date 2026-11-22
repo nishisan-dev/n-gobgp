@@ -150,8 +150,10 @@ var (
 	// Route protocol numbers owned by the kernel, by iproute2 and by other
 	// routing daemons (including the FRR range). Sharing one would make the
 	// ownership of a route ambiguous.
-	fibReservedProtocols = []int{0, 1, 2, 3, 4, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 42, 99,
-		186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198}
+	fibReservedProtocols = []int{
+		0, 1, 2, 3, 4, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 42, 99,
+		186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198,
+	}
 
 	// Kernel tables that cannot hold managed routes: unspecified, default and local.
 	fibReservedTables = []uint32{0, 253, 255}

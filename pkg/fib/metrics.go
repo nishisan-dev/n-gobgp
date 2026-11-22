@@ -19,12 +19,18 @@ func newMetrics(m *Manager) *metrics {
 	}
 	return &metrics{
 		m: m,
-		pathChanges: prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "gobgp", Subsystem: "fib", Name: "exit_path_changes_total",
-			Help: "Changes of the usable state of an exit path."}, []string{"exit_path"}),
-		kernelErrors: prometheus.NewCounter(prometheus.CounterOpts{Namespace: "gobgp", Subsystem: "fib", Name: "kernel_errors_total",
-			Help: "Failed kernel operations, including conflicts with other owners."}),
-		repairs: prometheus.NewCounter(prometheus.CounterOpts{Namespace: "gobgp", Subsystem: "fib", Name: "routes_repaired_total",
-			Help: "Owned routes found missing or changed in the kernel and installed again."}),
+		pathChanges: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "gobgp", Subsystem: "fib", Name: "exit_path_changes_total",
+			Help: "Changes of the usable state of an exit path.",
+		}, []string{"exit_path"}),
+		kernelErrors: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "gobgp", Subsystem: "fib", Name: "kernel_errors_total",
+			Help: "Failed kernel operations, including conflicts with other owners.",
+		}),
+		repairs: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "gobgp", Subsystem: "fib", Name: "routes_repaired_total",
+			Help: "Owned routes found missing or changed in the kernel and installed again.",
+		}),
 		usable:       desc("exit_path_usable", "Whether an exit path is usable (1) or not (0).", "exit_path"),
 		destinations: desc("destinations", "Destinations by kernel status.", "status"),
 		anchors:      desc("anchors", "Anchors by kernel status.", "status"),

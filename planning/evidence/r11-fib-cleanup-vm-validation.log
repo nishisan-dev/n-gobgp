@@ -212,3 +212,10 @@ LAB PASSED
 Ran 4 tests in 0.494s
 
 OK
+
+=== post-format lint ===
+0 issues.
+
+=== post-format regressions ===
+ok  	github.com/osrg/gobgp/v4/pkg/fib	10.851s
+ok  	github.com/osrg/gobgp/v4/pkg/config/oc	1.458s
