@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Control only the Docker daemon inside the dedicated CI runner container.
+# Control only the Docker daemon inside the isolated CI job container.
 set -euo pipefail
-pidfile=/run/ngobgp-dockerd.pid
+if [[ ! -f /run/n-gobgp-ci/owner || ${DOCKER_HOST:-} != unix:///run/n-gobgp-ci/docker.sock ]]; then
+    echo 'Refusing to control Docker outside an isolated n-gobgp job.' >&2
+    exit 1
+fi
+pidfile=/run/n-gobgp-ci/dockerd.pid
 start() {
     if docker info >/dev/null 2>&1; then return; fi
     # The daemon belongs to the runner, not to a job orphan-cleanup scope.
-    env -u RUNNER_TRACKING_ID nohup dockerd --pidfile="$pidfile" \
+    env -u RUNNER_TRACKING_ID nohup dockerd --host="$DOCKER_HOST" --pidfile="$pidfile" \
         </dev/null > /var/log/ngobgp-dockerd.log 2>&1 &
     for ((attempt=0; attempt<60; attempt++)); do
         if docker info >/dev/null 2>&1; then return; fi

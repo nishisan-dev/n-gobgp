@@ -1,2 +1,2 @@
 self-hosted-runner:
-  labels: [n-gobgp, isolated-docker]
+  labels: [nishisan]

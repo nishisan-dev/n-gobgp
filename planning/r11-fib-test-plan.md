@@ -16,7 +16,7 @@ e montagem criados com `unshare`.
 | Regras | `go test ./pkg/fib -run 'Engine\|Validate'` | Prioridade determinística, communities, AS-PATH, next-hop, prefix-sets, ação ignore, rota default só pela seção própria, condições não suportadas, avisos de GR e Zebra |
 | Saúde dos caminhos | `go test ./pkg/fib -run PathHealth` | Limiares de falha e sucesso, queda imediata por link, hold-down de estabilidade, amortecimento de oscilações e retorno ao valor base |
 | Gerenciador (kernel simulado) | `go test ./pkg/fib -run 'Anchor\|Routes\|Conflict\|Protected\|Session\|Restart\|Resync\|Traffic\|Default\|Close\|Observe\|Metrics'` | Âncoras, failover, make-before-break, conflitos, prefixos protegidos, perda de sessão, reconciliação por EOR e por prazos, resync, regras e isenções, modos da rota default com restauração, parada limpa, modo observação e métricas |
-| Kernel real | `go test ./pkg/fib -run 'Netlink\|MonitorFollows'` | Rotas e regras com protocolo próprio, rotas e regras de terceiros intocadas, substituição e restauração de rota alheia, sonda ARP, detecção de link por eventos netlink |
+| Kernel real | `go test ./pkg/fib -run 'Netlink\|Monitor'` | Rotas e regras com protocolo próprio, rotas e regras de terceiros intocadas, substituição e restauração de rota alheia, sonda ARP, detecção de link por eventos netlink |
 | Assinatura BGP | `go test ./pkg/server -run SubscribeBestPaths` | Tabela inicial, filtragem por família, retiradas, sessões e End-of-RIB, ausência de descarte com consumidor bloqueado |
 | Laboratório ponta a ponta | `test/fib/lab.sh` | Dois `gobgpd` (servidor e CPE em namespace), eBGP multihop entre loopbacks, 48 verificações (abaixo) |
 

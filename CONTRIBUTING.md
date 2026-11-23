@@ -145,9 +145,10 @@ binaries, source and checksums. No release tag is created by the build scripts.
 
 ## Required CI
 
-CI uses the [dedicated self-hosted runner](.github/runner/README.md) on the
-validation VM. Both CI and release workflows require its dedicated labels;
-they do not fall back to GitHub-hosted or shared organization runners.
+CI uses [organization runners with isolated jobs](.github/ci/README.md) on the
+validation VM. CI and release workflows use the existing `nishisan` runner group
+with Linux x64 labels. Project commands run in a disposable container per job;
+checkout and artifact transfers remain on the native runner.
 
 The `required` job aggregates every CI job, including the AS 0/BFD regressions,
 race detection, 32-bit tests, Kafka with real brokers, generated API/YANG files,

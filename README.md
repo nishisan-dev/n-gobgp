@@ -39,8 +39,8 @@ configuration, then start the daemon and inspect its peers:
 ./bin/gobgp neighbor
 ```
 
-CI runs on a [dedicated self-hosted runner](.github/runner/README.md) on the
-validation VM, with a separate Docker daemon for the scenario laboratories.
+CI runs on [organization runners with isolated jobs](.github/ci/README.md) on the
+validation VM. Every job has a private Docker daemon and disposable workspace.
 
 ## Documentation
 

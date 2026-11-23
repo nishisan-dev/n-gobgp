@@ -14,20 +14,35 @@ permissions:
   actions: read
   checks: write
 
+defaults:
+  run:
+    shell: python3 tools/ci-job.py run {0}
+
 jobs:
+  prepare-tools:
+    name: prepare isolated job tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
+
   crossbuild:
     name: crossbuild
     strategy:
       matrix:
         GOOS: ["freebsd", "openbsd", "darwin", "windows"]
         GOARCH: ["amd64"]
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: prepare-tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.27.3"
-          cache: false
+      - uses: ./.github/actions/isolated-job
       - run: |
           go env
           go build ./cmd/gobgp
@@ -38,26 +53,28 @@ jobs:
 
   unit:
     name: unit
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: prepare-tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.27.3"
-          cache: false
+      - uses: ./.github/actions/isolated-job
       - run: |
           go test -v -race -timeout 240s ./...
           if [ "$(go env GOARCH)" = "amd64" ]; then go test -v -race github.com/osrg/gobgp/v4/pkg/packet/bgp -run ^Test_RaceCondition$; else echo 'skip'; fi
 
   kafka-events:
     name: Kafka event sink integration
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: prepare-tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.27.3"
-          cache: false
+      - uses: ./.github/actions/isolated-job
       - name: start disposable brokers
         run: docker compose -f test/kafka/docker-compose.yml up -d
       - name: wait for the Kafka protocol on both brokers
@@ -74,16 +91,17 @@ jobs:
 
   unit386:
     name: unit386
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: prepare-tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     env:
       GOARCH: 386
       CGO_ENABLED: 1
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.27.3"
-          cache: false
+      - uses: ./.github/actions/isolated-job
       - run: |
           sudo apt update
           sudo apt install -y gcc-multilib g++-multilib
@@ -92,13 +110,14 @@ jobs:
 
   protobuf-check:
     name: protobuf lint and format check
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: prepare-tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.27.3"
-          cache: false
+      - uses: ./.github/actions/isolated-job
       - run: go install github.com/bufbuild/buf/cmd/buf@latest
 
       - name: buf lint
@@ -112,30 +131,29 @@ jobs:
       # Running it from the repository root wrote the generated code to the
       # parent of the checkout, leaving the diff check below nothing to compare.
       - name: buf generate
-        working-directory: proto
-        run: buf generate
+        run: |
+          cd proto
+          buf generate
 
       - name: buf generate check
         run: git diff --exit-code
 
   yang-check:
     name: generated YANG files check
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: prepare-tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.27.3"
-          cache: false
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
 
       # The model repositories are pinned. osrg/public and osrg/yang are forks
       # that stopped tracking upstream, but osrg/pyang follows upstream pyang,
       # where a new release can change the generated output. Without a pin, an
       # unrelated pull request starts failing here. These land under
       # .yang-models/, which is untracked, so the diff check below ignores them.
+      - uses: ./.github/actions/isolated-job
       - uses: actions/checkout@v6
         with:
           repository: osrg/public
@@ -156,11 +174,10 @@ jobs:
       - name: install pyang dependencies
         run: python -m pip install 'setuptools<82' -r .yang-models/pyang/requirements.txt
 
-      # shell: bash adds -o pipefail, so pyang's exit status is not hidden by
+      # The isolated shell uses pipefail, so pyang's exit status is not hidden by
       # gofmt. Write to a temporary file so a failed run leaves the checked-in
       # file alone.
       - name: generate YANG files
-        shell: bash
         run: |
           models="$GITHUB_WORKSPACE/.yang-models"
           cd "$models/pyang"
@@ -182,40 +199,41 @@ jobs:
 
   golangci:
     name: lint
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: prepare-tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.27.3"
-          cache: false
+      - uses: ./.github/actions/isolated-job
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          skip-cache: true
+        run: bash tools/ci-tool.sh golangci-lint run
 
   embedded:
     name: embedded
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: prepare-tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.27.3"
-          cache: false
+      - uses: ./.github/actions/isolated-job
       - run: |
           python test/scenario_test/ci-scripts/build_embedded_go.py docs/sources/lib.md
           python test/scenario_test/ci-scripts/build_embedded_go.py docs/sources/bgp-ls.md
 
   lintdoc:
     name: lintdoc
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: prepare-tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.27.3"
-          cache: false
+      - uses: ./.github/actions/isolated-job
       - run: |
           npm install markdownlint-cli
           ./node_modules/.bin/markdownlint $(find . -type d -name 'node_modules' -prune -o -type f -name '*.md' -print)
@@ -227,17 +245,18 @@ jobs:
 
   build:
     name: build container image
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: prepare-tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     permissions:
       contents: read
       actions: write
       checks: write
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.27.3"
-          cache: false
+      - uses: ./.github/actions/isolated-job
       - name: verify image cache integrity and execution isolation
         run: python3 tools/test-ci-image-cache.py
       - name: container image
@@ -248,7 +267,10 @@ jobs:
           docker save gobgp-oq > gobgp-oq.tar
 
       - name: retain verified images on this runner
-        run: python3 tools/ci-image-cache.py save .
+        shell: bash
+        run: |
+          python3 tools/ci-job.py export gobgp.tar gobgp-oq.tar
+          python3 tools/ci-image-cache.py save .
 
       - name: upload image file
         uses: actions/upload-artifact@v7
@@ -260,10 +282,14 @@ jobs:
 
   router:
     name: router
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -274,10 +300,14 @@ jobs:
 
   evpn:
     name: evpn
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -288,10 +318,14 @@ jobs:
 
   flowspec:
     name: flowspec
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -302,10 +336,14 @@ jobs:
 
   global-policy:
     name: global-policy
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -316,10 +354,14 @@ jobs:
 
   graceful-restart:
     name: graceful-restart
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -330,10 +372,14 @@ jobs:
 
   ibgp:
     name: ibgp
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -344,10 +390,14 @@ jobs:
 
   rr:
     name: route-refector
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -358,10 +408,14 @@ jobs:
 
   as2:
     name: as2
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -372,16 +426,20 @@ jobs:
 
   ipv4-v6:
     name: ipv4-v6
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
           echo  "{\"ipv6\": true,\"fixed-cidr-v6\": \"2001:db8:1::/64\"}" > daemon.json
-          sudo cp daemon.json /etc/docker
-          sudo ngobgp-ci-docker restart
+          sudo install -D -m 644 daemon.json /etc/docker/daemon.json
+          ngobgp-ci-docker restart
           docker load < artifact/gobgp.tar
           sudo apt-get install python3-setuptools
           sudo pip3 install -r test/pip-requires.txt
@@ -389,10 +447,14 @@ jobs:
 
   malformed:
     name: malformed
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -403,10 +465,14 @@ jobs:
 
   rs-policy-grpc:
     name: rs-policy-grpc
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -417,18 +483,23 @@ jobs:
 
   rs-policy:
     name: rs-policy
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: enable IPv6
         run: |
           sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0
           sudo sysctl -w net.ipv6.conf.default.disable_ipv6=0
           sudo sysctl -w net.ipv6.conf.all.forwarding=1
-          echo '{"ipv6": true, "fixed-cidr-v6": "2001:db8:1::/64"}' | sudo tee /etc/docker/daemon.json
-          sudo ngobgp-ci-docker restart
+          echo '{"ipv6": true, "fixed-cidr-v6": "2001:db8:1::/64"}' > daemon.json
+          sudo install -D -m 644 daemon.json /etc/docker/daemon.json
+          ngobgp-ci-docker restart
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -438,10 +509,14 @@ jobs:
 
   softreset:
     name: softreset
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -452,10 +527,14 @@ jobs:
 
   rs1:
     name: routeserver1
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -466,10 +545,14 @@ jobs:
 
   rs2:
     name: routeserver2
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -480,10 +563,14 @@ jobs:
 
   llgr:
     name: llgr
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -494,10 +581,14 @@ jobs:
 
   vrf-neighbor1:
     name: vrf-neighbor1
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -508,10 +599,14 @@ jobs:
 
   vrf-neighbor2:
     name: vrf-neighbor2
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -522,10 +617,14 @@ jobs:
 
   rtc:
     name: rtc
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -536,16 +635,20 @@ jobs:
 
   unnumbered:
     name: unnumbered
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
           echo  "{\"ipv6\": true,\"fixed-cidr-v6\": \"2001:db8:1::/64\"}" > daemon.json
-          sudo cp daemon.json /etc/docker
-          sudo ngobgp-ci-docker restart
+          sudo install -D -m 644 daemon.json /etc/docker/daemon.json
+          ngobgp-ci-docker restart
           # don't assign ipv6 addresss to docker0 bridge so two containers have p2p link.
           sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0
           sudo sysctl -w net.ipv6.conf.default.disable_ipv6=0
@@ -557,10 +660,14 @@ jobs:
 
   aspath:
     name: aspath
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -571,10 +678,14 @@ jobs:
 
   addpath:
     name: addpath
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -585,10 +696,14 @@ jobs:
 
   malformed-handling:
     name: malformed-handling
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -599,10 +714,14 @@ jobs:
 
   confederation:
     name: confederation
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -613,10 +732,14 @@ jobs:
 
   zebra:
     name: zebra
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -627,10 +750,14 @@ jobs:
 
   zebra-nht:
     name: zebra-nht
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -641,10 +768,14 @@ jobs:
 
   zapi-v3:
     name: zapi-v3
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -655,10 +786,14 @@ jobs:
 
   zapi-v3-multipath:
     name: zapi-v3-multipath
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -669,10 +804,14 @@ jobs:
 
   mup:
     name: mup
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -683,10 +822,14 @@ jobs:
 
   bgp-ls:
     name: bgp-ls
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -697,10 +840,14 @@ jobs:
 
   tcp-md5:
     name: tcp-md5
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -711,10 +858,14 @@ jobs:
 
   tcp-ao:
     name: tcp-ao
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     needs: build
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - uses: ./.github/actions/test-images
       - name: test
         run: |
@@ -725,33 +876,41 @@ jobs:
 
   build-identity:
     name: build identity and release contract
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: prepare-tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.27.3"
-          cache: false
+      - uses: ./.github/actions/isolated-job
       - run: python3 tools/test-ci-gate.py
+      - run: python3 tools/test-ci-job.py
       - run: python3 tools/test-ci-ensure-vrf.py
-      - run: tools/check-build.sh
-      - uses: goreleaser/goreleaser-action@v7
-        with:
-          version: v2.19.0
-          args: check
+      - name: verify the legacy default Docker endpoint remains private
+        run: |
+          private_id=$(docker info --format '{{.ID}}')
+          default_id=$(env -u DOCKER_HOST docker info --format '{{.ID}}')
+          test -n "$private_id"
+          test "$default_id" = "$private_id"
+      - name: verify clean identity and reproducible builds
+        run: |
+          test -z "$(git status --porcelain)"
+          tools/check-build.sh
+      - run: bash tools/ci-tool.sh goreleaser check
 
   r03-protocol:
     name: R03 protocol regressions
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: prepare-tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.27.3"
-          cache: false
+      - uses: ./.github/actions/isolated-job
       - name: verify BGP recovery after RPKI, VRF, refresh, GR and LLGR changes
         env:
           GORACE: halt_on_error=1
@@ -765,14 +924,14 @@ jobs:
 
   r04-recovery:
     name: R04 Kafka capture recovery
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: prepare-tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.27.3"
-          cache: false
+      - uses: ./.github/actions/isolated-job
       - name: verify loss detection and the bounded reference consumer
         run: go test -race ./pkg/sink/kafka/... -run 'TestCapture|TestReference' -count=3 -timeout=120s
       - name: exercise live recovery through an independent FRR reflector
@@ -781,6 +940,10 @@ jobs:
           export R04_BUILD_CACHE="$(go env GOCACHE)"
           export R04_OUTPUT_DIR="$RUNNER_TEMP/r04-lab"
           bash test/r04/lab.sh
+      - name: export laboratory evidence
+        if: ${{ always() }}
+        shell: bash
+        run: python3 tools/ci-job.py export-temp r04-lab
       - name: preserve laboratory evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
@@ -791,14 +954,14 @@ jobs:
 
   r11-fib:
     name: R11 Linux forwarding
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: prepare-tools
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.27.3"
-          cache: false
+      - uses: ./.github/actions/isolated-job
       - name: require network namespace support
         run: unshare -rnm true
       - name: verify kernel programming in network namespaces
@@ -813,10 +976,14 @@ jobs:
   required:
     name: required
     if: ${{ always() }}
-    needs: [crossbuild, unit, kafka-events, unit386, protobuf-check, yang-check, golangci, embedded, lintdoc, build, router, evpn, flowspec, global-policy, graceful-restart, ibgp, rr, as2, ipv4-v6, malformed, rs-policy-grpc, rs-policy, softreset, rs1, rs2, llgr, vrf-neighbor1, vrf-neighbor2, rtc, unnumbered, aspath, addpath, malformed-handling, confederation, zebra, zebra-nht, zapi-v3, zapi-v3-multipath, mup, bgp-ls, tcp-md5, tcp-ao, build-identity, r03-protocol, r04-recovery, r11-fib]
-    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    needs: [prepare-tools, crossbuild, unit, kafka-events, unit386, protobuf-check, yang-check, golangci, embedded, lintdoc, build, router, evpn, flowspec, global-policy, graceful-restart, ibgp, rr, as2, ipv4-v6, malformed, rs-policy-grpc, rs-policy, softreset, rs1, rs2, llgr, vrf-neighbor1, vrf-neighbor2, rtc, unnumbered, aspath, addpath, malformed-handling, confederation, zebra, zebra-nht, zapi-v3, zapi-v3-multipath, mup, bgp-ls, tcp-md5, tcp-ao, build-identity, r03-protocol, r04-recovery, r11-fib]
+    runs-on:
+      group: nishisan
+      labels: [self-hosted, Linux, X64]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/isolated-job
       - name: require every validation to succeed
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
