@@ -14,6 +14,7 @@ import (
 
 type BgpConfigSet struct {
 	Kafka             kafkaconfig.Config `mapstructure:"kafka"`
+	Fib               Fib                `mapstructure:"fib"`
 	Global            Global             `mapstructure:"global"`
 	Neighbors         []Neighbor         `mapstructure:"neighbors"`
 	PeerGroups        []PeerGroup        `mapstructure:"peer-groups"`
@@ -64,6 +65,9 @@ func ReadConfig(r io.Reader, format string) (*BgpConfigSet, error) {
 	}
 
 	if err := config.Kafka.Normalize(); err != nil {
+		return nil, err
+	}
+	if err := config.Fib.Normalize(); err != nil {
 		return nil, err
 	}
 	return config, nil

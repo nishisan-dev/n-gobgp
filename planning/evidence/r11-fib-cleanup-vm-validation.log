@@ -1,0 +1,318 @@
+Manual validation on root@192.168.7.2; source excludes uncommitted manager changes.
+
+=== cleanup ===
+test_command_failure (__main__.LabCleanupTest.test_command_failure) ... ok
+test_hangup (__main__.LabCleanupTest.test_hangup) ... ok
+test_interrupt (__main__.LabCleanupTest.test_interrupt) ... ok
+test_killed_launcher (__main__.LabCleanupTest.test_killed_launcher) ... ok
+test_killed_namespace_init (__main__.LabCleanupTest.test_killed_namespace_init) ... ok
+test_normal_exit (__main__.LabCleanupTest.test_normal_exit) ... ok
+test_stubborn_daemons (__main__.LabCleanupTest.test_stubborn_daemons) ... ok
+test_termination (__main__.LabCleanupTest.test_termination) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 35.582s
+
+OK
+
+=== fib ===
+=== RUN   TestPathHealthStartsUnusableAndComesUpAfterSuccesses
+--- PASS: TestPathHealthStartsUnusableAndComesUpAfterSuccesses (0.00s)
+=== RUN   TestPathHealthToleratesIsolatedProbeFailures
+--- PASS: TestPathHealthToleratesIsolatedProbeFailures (0.00s)
+=== RUN   TestPathHealthLinkDownIsImmediate
+--- PASS: TestPathHealthLinkDownIsImmediate (0.00s)
+=== RUN   TestPathHealthHoldsDownARecoveredPath
+--- PASS: TestPathHealthHoldsDownARecoveredPath (0.00s)
+=== RUN   TestPathHealthFailureDuringHoldDownRestartsIt
+--- PASS: TestPathHealthFailureDuringHoldDownRestartsIt (0.00s)
+=== RUN   TestPathHealthDampsFlapsAndForgetsThemWhenStable
+--- PASS: TestPathHealthDampsFlapsAndForgetsThemWhenStable (0.00s)
+=== RUN   TestPathHealthSettlesOnItsFirstVerdict
+--- PASS: TestPathHealthSettlesOnItsFirstVerdict (0.00s)
+=== RUN   TestPathHealthWithoutHoldDown
+--- PASS: TestPathHealthWithoutHoldDown (0.00s)
+=== RUN   TestNetlinkKernelOwnsOnlyItsRoutes
+--- PASS: TestNetlinkKernelOwnsOnlyItsRoutes (1.79s)
+=== RUN   TestNetlinkKernelNeverTouchesForeignRoutes
+--- PASS: TestNetlinkKernelNeverTouchesForeignRoutes (1.39s)
+=== RUN   TestNetlinkCheckerProbesTheGateway
+--- PASS: TestNetlinkCheckerProbesTheGateway (1.66s)
+=== RUN   TestMonitorFollowsRealLinks
+--- PASS: TestMonitorFollowsRealLinks (1.95s)
+=== RUN   TestNetlinkKernelRules
+--- PASS: TestNetlinkKernelRules (1.65s)
+=== RUN   TestNetlinkKernelTakesOverAndRestoresAForeignRoute
+--- PASS: TestNetlinkKernelTakesOverAndRestoresAForeignRoute (1.30s)
+=== RUN   TestAnchorsFollowTheirExitPaths
+--- PASS: TestAnchorsFollowTheirExitPaths (0.03s)
+=== RUN   TestAnchorWithoutAnyUsablePathIsNotInstalled
+--- PASS: TestAnchorWithoutAnyUsablePathIsNotInstalled (0.01s)
+=== RUN   TestRoutesFollowDecisionsAndExitPaths
+--- PASS: TestRoutesFollowDecisionsAndExitPaths (0.01s)
+=== RUN   TestRouteMovesBeforeTheOldOneIsRemoved
+--- PASS: TestRouteMovesBeforeTheOldOneIsRemoved (0.00s)
+=== RUN   TestConflictsLeaveForeignRoutesAlone
+--- PASS: TestConflictsLeaveForeignRoutesAlone (0.01s)
+=== RUN   TestOwnedRouteTakenByAnotherOwnerIsNotOverwritten
+--- PASS: TestOwnedRouteTakenByAnotherOwnerIsNotOverwritten (0.00s)
+=== RUN   TestProtectedPrefixesAndAnchorsAreNotOverriddenByBGP
+--- PASS: TestProtectedPrefixesAndAnchorsAreNotOverriddenByBGP (0.00s)
+=== RUN   TestSessionLossRemovesBGPRoutesButKeepsAnchors
+--- PASS: TestSessionLossRemovesBGPRoutesButKeepsAnchors (0.01s)
+=== RUN   TestObserveModeNeverTouchesTheKernel
+--- PASS: TestObserveModeNeverTouchesTheKernel (0.00s)
+=== RUN   TestCloseRemovesOnlyOwnedObjects
+--- PASS: TestCloseRemovesOnlyOwnedObjects (0.01s)
+=== RUN   TestRouteChangesAreLoggedReadably
+--- PASS: TestRouteChangesAreLoggedReadably (0.01s)
+=== RUN   TestPathChangesBeforeStartDoNotTouchTheKernel
+--- PASS: TestPathChangesBeforeStartDoNotTouchTheKernel (0.00s)
+=== RUN   TestRestartKeepsInheritedRoutesUntilEndOfRib
+--- PASS: TestRestartKeepsInheritedRoutesUntilEndOfRib (0.01s)
+=== RUN   TestRestartReconcilesAfterEorTimeout
+--- PASS: TestRestartReconcilesAfterEorTimeout (0.17s)
+=== RUN   TestRestartReconcilesAfterMaxRetentionWithoutSession
+--- PASS: TestRestartReconcilesAfterMaxRetentionWithoutSession (0.07s)
+=== RUN   TestStartWithoutInheritedRoutesIsReconciled
+--- PASS: TestStartWithoutInheritedRoutesIsReconciled (0.01s)
+=== RUN   TestResyncRepairsTheKernel
+--- PASS: TestResyncRepairsTheKernel (0.01s)
+=== RUN   TestTrafficRulesAndExemptions
+--- PASS: TestTrafficRulesAndExemptions (0.08s)
+=== RUN   TestTrafficRuleDoesNotShareAPriorityWithAForeignRule
+--- PASS: TestTrafficRuleDoesNotShareAPriorityWithAForeignRule (0.00s)
+=== RUN   TestDefaultRouteModes
+=== RUN   TestDefaultRouteModes/table
+=== RUN   TestDefaultRouteModes/main_coexists_with_a_different_metric
+=== RUN   TestDefaultRouteModes/main_conflicts_without_authorization
+=== RUN   TestDefaultRouteModes/main_replaces_and_restores_when_authorized
+--- PASS: TestDefaultRouteModes (0.04s)
+    --- PASS: TestDefaultRouteModes/table (0.01s)
+    --- PASS: TestDefaultRouteModes/main_coexists_with_a_different_metric (0.00s)
+    --- PASS: TestDefaultRouteModes/main_conflicts_without_authorization (0.00s)
+    --- PASS: TestDefaultRouteModes/main_replaces_and_restores_when_authorized (0.00s)
+=== RUN   TestManagerObservesBestPathDecisions
+--- PASS: TestManagerObservesBestPathDecisions (0.05s)
+=== RUN   TestManagerTreatsStalePathsAsWithdrawn
+--- PASS: TestManagerTreatsStalePathsAsWithdrawn (0.00s)
+=== RUN   TestManagerIgnoresOtherFamiliesAndKeepsIgnoredDecisions
+--- PASS: TestManagerIgnoresOtherFamiliesAndKeepsIgnoredDecisions (0.00s)
+=== RUN   TestNewRejectsDisabledConfiguration
+--- PASS: TestNewRejectsDisabledConfiguration (0.00s)
+=== RUN   TestMetricsDescribeTheKernelState
+--- PASS: TestMetricsDescribeTheKernelState (0.01s)
+=== RUN   TestEngineSelectsLowestPriorityMatchingRule
+=== RUN   TestEngineSelectsLowestPriorityMatchingRule/community_beats_prefix
+=== RUN   TestEngineSelectsLowestPriorityMatchingRule/prefix_set
+=== RUN   TestEngineSelectsLowestPriorityMatchingRule/ignore_rule_beats_prefix
+=== RUN   TestEngineSelectsLowestPriorityMatchingRule/next_hop
+=== RUN   TestEngineSelectsLowestPriorityMatchingRule/catch-all
+--- PASS: TestEngineSelectsLowestPriorityMatchingRule (0.01s)
+    --- PASS: TestEngineSelectsLowestPriorityMatchingRule/community_beats_prefix (0.00s)
+    --- PASS: TestEngineSelectsLowestPriorityMatchingRule/prefix_set (0.00s)
+    --- PASS: TestEngineSelectsLowestPriorityMatchingRule/ignore_rule_beats_prefix (0.00s)
+    --- PASS: TestEngineSelectsLowestPriorityMatchingRule/next_hop (0.00s)
+    --- PASS: TestEngineSelectsLowestPriorityMatchingRule/catch-all (0.00s)
+=== RUN   TestEngineIgnoresUnmatchedPaths
+--- PASS: TestEngineIgnoresUnmatchedPaths (0.00s)
+=== RUN   TestEngineNeverMatchesTheDefaultRouteWithGenericRules
+--- PASS: TestEngineNeverMatchesTheDefaultRouteWithGenericRules (0.00s)
+=== RUN   TestEngineInstallsTheDefaultRouteOnlyThroughItsOwnSection
+--- PASS: TestEngineInstallsTheDefaultRouteOnlyThroughItsOwnSection (0.03s)
+=== RUN   TestEngineRejectsUnresolvableOrUnsupportedConditions
+=== RUN   TestEngineRejectsUnresolvableOrUnsupportedConditions/other_families
+=== RUN   TestEngineRejectsUnresolvableOrUnsupportedConditions/unknown_set
+=== RUN   TestEngineRejectsUnresolvableOrUnsupportedConditions/call_policy
+=== RUN   TestEngineRejectsUnresolvableOrUnsupportedConditions/tag_set
+=== RUN   TestEngineRejectsUnresolvableOrUnsupportedConditions/protocol
+=== RUN   TestEngineRejectsUnresolvableOrUnsupportedConditions/rpki
+--- PASS: TestEngineRejectsUnresolvableOrUnsupportedConditions (0.01s)
+    --- PASS: TestEngineRejectsUnresolvableOrUnsupportedConditions/other_families (0.00s)
+    --- PASS: TestEngineRejectsUnresolvableOrUnsupportedConditions/unknown_set (0.00s)
+    --- PASS: TestEngineRejectsUnresolvableOrUnsupportedConditions/call_policy (0.00s)
+    --- PASS: TestEngineRejectsUnresolvableOrUnsupportedConditions/tag_set (0.00s)
+    --- PASS: TestEngineRejectsUnresolvableOrUnsupportedConditions/protocol (0.00s)
+    --- PASS: TestEngineRejectsUnresolvableOrUnsupportedConditions/rpki (0.00s)
+=== RUN   TestValidateWarnsAboutGracefulRestartAndZebraInMain
+--- PASS: TestValidateWarnsAboutGracefulRestartAndZebraInMain (0.01s)
+=== RUN   TestValidateIgnoresDisabledFib
+--- PASS: TestValidateIgnoresDisabledFib (0.00s)
+PASS
+
+=== vet ===
+
+=== lab ===
+lab directory: /var/tmp/ngobgp-fib-pr.6y0DA5/tmp/fib-lab.UpXAwN
+== startup
+PASS anchor installed through wan1
+PASS multihop session established through the anchor
+PASS customers route in table 100 through wan1
+PASS community route in table 100 through wan2
+PASS default route in table 300
+PASS protected prefix not installed in main
+PASS BGP route for the anchor refused
+PASS exemption for the protected prefix
+PASS exemption for the anchor
+PASS traffic rule
+PASS traffic from the LAN uses table 100
+PASS no conflict with the foreign route in table 100
+== BGP withdrawal
+PASS withdrawn route removed at once
+PASS announced again
+== silent gateway failure on wan1 (link stays up)
+PASS anchor moves to wan2
+PASS customers route moves to wan2
+PASS default route moves to wan2
+PASS BGP session survives the failure (beyond the hold time)
+PASS reason logged
+== recovery with hold-down
+PASS still on wan2 during the hold-down
+PASS anchor back on wan1
+PASS customers route back on wan1
+== link failure on wan1
+PASS link down moves the anchor at once
+PASS back on wan1 after recovery
+== both exit paths down
+PASS BGP routes removed without a usable path
+PASS anchor kept on its last active path
+PASS session back
+PASS routes back
+PASS routes back on the preferred path
+== external removal is repaired
+PASS route installed again by the resync
+== crash and restart
+PASS anchor on wan1 before the crash
+PASS routes survive the crash
+PASS session after restart
+PASS route withdrawn while down is reconciled away
+PASS no gap for confirmed routes and the anchor during the restart
+PASS reconciliation logged
+== clean stop
+PASS no owned routes or rules after stop
+PASS foreign route in main intact
+PASS foreign route in table 100 intact
+PASS foreign rule intact
+== default route in main, replacing a foreign default
+PASS session with the new configuration
+PASS BGP default replaces the foreign default
+PASS management route unaffected
+PASS withdrawal restores the foreign default
+PASS BGP default installed again
+PASS clean stop restores the foreign default
+PASS no owned routes or rules after the second stop
+
+LAB PASSED
+
+=== actionlint ===
+
+=== ci-gate ===
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.494s
+
+OK
+
+=== post-format lint ===
+0 issues.
+
+=== post-format regressions ===
+ok  	github.com/osrg/gobgp/v4/pkg/fib	10.851s
+ok  	github.com/osrg/gobgp/v4/pkg/config/oc	1.458s
+
+=== nested Docker cgroup validation and full R04 lab ===
+Outer limits: cpu.max=300000 100000; memory.max=8589934592
+Nested limits: cpu.max=50000 100000; memory.max=134217728
+=== RUN   TestR04ReflectorHotRecovery
+    lab_test.go:270: initial convergence after 25.064039167s: {Contract:1 Generation:c11b5c88-1235-4ef3-80d7-1a908fde5554 Sinks:[{Sink:raw Generation:c11b5c88-1235-4ef3-80d7-1a908fde5554 State:ready Scope:entire-configured-sink Match:{EventTypes:{Include:[] Exclude:[]} Families:{Include:[] Exclude:[]} Sources:{Include:[adj-in] Exclude:[]} Peers:{Addresses:{Include:[] Exclude:[]} ASNs:{Include:[] Exclude:[]}}} SnapshotRequested:true StorageHealthy:true Publishing:true LossReasons:[] LossIncidents:0 LastSequence:5004 LastPublishedSequence:5004 SnapshotEndSequence:5004}]}
+    lab_test.go:282: broker restarted after 30.009910004s: {Contract:1 Generation:488dd24a-4eda-448a-a857-c4674c54f94e Sinks:[{Sink:raw Generation:488dd24a-4eda-448a-a857-c4674c54f94e State:capturing Scope:entire-configured-sink Match:{EventTypes:{Include:[] Exclude:[]} Families:{Include:[] Exclude:[]} Sources:{Include:[adj-in] Exclude:[]} Peers:{Addresses:{Include:[] Exclude:[]} ASNs:{Include:[] Exclude:[]}}} SnapshotRequested:true StorageHealthy:true Publishing:true LossReasons:[] LossIncidents:0 LastSequence:1473 LastPublishedSequence:0 SnapshotEndSequence:0}]}
+--- PASS: TestR04ReflectorHotRecovery (75.78s)
+PASS
+ok  	github.com/osrg/gobgp/v4/test/r04	76.933s
+R04 evidence: /work/r04-cgroup-validation
+
+=== three fresh Kafka startups with protocol readiness ===
+STARTUP_CASE=1
+ Network kafka_default Creating
+ Network kafka_default Created
+ Container kafka-analytics-1 Creating
+ Container kafka-primary-1 Creating
+ Container kafka-primary-1 Created
+ Container kafka-analytics-1 Created
+ Container kafka-analytics-1 Starting
+ Container kafka-primary-1 Starting
+ Container kafka-analytics-1 Started
+ Container kafka-primary-1 Started
+
+Kafka broker at 127.0.0.1:19092 is ready
+
+Kafka broker at 127.0.0.1:19094 is ready
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka	7.584s
+ Container kafka-analytics-1 Stopping
+ Container kafka-primary-1 Stopping
+ Container kafka-primary-1 Stopped
+ Container kafka-primary-1 Removing
+ Container kafka-primary-1 Removed
+ Container kafka-analytics-1 Stopped
+ Container kafka-analytics-1 Removing
+ Container kafka-analytics-1 Removed
+ Network kafka_default Removing
+ Network kafka_default Removed
+STARTUP_CASE=2
+ Network kafka_default Creating
+ Network kafka_default Created
+ Container kafka-analytics-1 Creating
+ Container kafka-primary-1 Creating
+ Container kafka-analytics-1 Created
+ Container kafka-primary-1 Created
+ Container kafka-primary-1 Starting
+ Container kafka-analytics-1 Starting
+ Container kafka-primary-1 Started
+ Container kafka-analytics-1 Started
+
+Kafka broker at 127.0.0.1:19092 is ready
+
+Kafka broker at 127.0.0.1:19094 is ready
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka	7.452s
+ Container kafka-analytics-1 Stopping
+ Container kafka-primary-1 Stopping
+ Container kafka-primary-1 Stopped
+ Container kafka-primary-1 Removing
+ Container kafka-primary-1 Removed
+ Container kafka-analytics-1 Stopped
+ Container kafka-analytics-1 Removing
+ Container kafka-analytics-1 Removed
+ Network kafka_default Removing
+ Network kafka_default Removed
+STARTUP_CASE=3
+ Network kafka_default Creating
+ Network kafka_default Created
+ Container kafka-primary-1 Creating
+ Container kafka-analytics-1 Creating
+ Container kafka-primary-1 Created
+ Container kafka-analytics-1 Created
+ Container kafka-analytics-1 Starting
+ Container kafka-primary-1 Starting
+ Container kafka-analytics-1 Started
+ Container kafka-primary-1 Started
+
+Kafka broker at 127.0.0.1:19092 is ready
+
+Kafka broker at 127.0.0.1:19094 is ready
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka	2.228s
+ Container kafka-analytics-1 Stopping
+ Container kafka-primary-1 Stopping
+ Container kafka-primary-1 Stopped
+ Container kafka-primary-1 Removing
+ Container kafka-primary-1 Removed
+ Container kafka-analytics-1 Stopped
+ Container kafka-analytics-1 Removing
+ Container kafka-analytics-1 Removed
+ Network kafka_default Removing
+ Network kafka_default Removed
+
+=== verified local image cache on VM ===
+Focused valid-cache restore test failed before restoration was implemented.
+All four regression cases then passed on root@192.168.7.2.
+Real image archives: save 2.240s; restore 1.461s; both SHA-256 checks passed.
+Workflow syntax validation passed on the VM.

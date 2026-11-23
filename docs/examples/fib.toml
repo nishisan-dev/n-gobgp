@@ -1,0 +1,104 @@
+# Policy-based Linux forwarding for a server with two links to one CPE.
+# See docs/sources/linux-fib.md. The CPE peers from its loopback 192.0.2.10
+# with the server loopback 192.0.2.20, and reaches 192.0.2.20 through both
+# links.
+
+[global.config]
+as = 65001
+router-id = "192.0.2.20"
+port = -1
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "192.0.2.10"
+peer-as = 65002
+[neighbors.transport.config]
+local-address = "192.0.2.20"
+[neighbors.ebgp-multihop.config]
+enabled = true
+multihop-ttl = 3
+# Graceful restart stays disabled: the fib never forwards to stale paths.
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv4-unicast"
+
+[[defined-sets.prefix-sets]]
+prefix-set-name = "customers"
+[[defined-sets.prefix-sets.prefix-list]]
+ip-prefix = "198.51.100.0/24"
+masklength-range = "24..32"
+
+[[defined-sets.bgp-defined-sets.community-sets]]
+community-set-name = "prefer-wan2"
+community-list = ["65002:200"]
+
+[fib]
+enabled = true
+# "observe" logs the decisions without changing the kernel.
+mode = "enforce"
+protocol = 200
+metric = 20
+# Never let BGP override the management network in the main table.
+protected-prefixes = ["10.10.0.0/16"]
+
+[fib.health]
+interval = "1s"
+failures = 3
+successes = 3
+hold-down = "10s"
+max-hold-down = "5m"
+
+[fib.startup]
+eor-timeout = "30s"
+max-retention = "2m"
+
+[[fib.exit-paths]]
+name = "wan1"
+interface = "eth1"
+gateway = "10.0.1.1"
+
+[[fib.exit-paths]]
+name = "wan2"
+interface = "eth2"
+gateway = "10.0.2.1"
+
+# The BGP session itself: the route to the CPE loopback follows the
+# healthy link, independently of BGP.
+[[fib.anchors]]
+name = "cpe-loopback"
+prefix = "192.0.2.10/32"
+exit-paths = ["wan1", "wan2"]
+
+[[fib.rules]]
+name = "tagged-for-wan2"
+priority = 10
+table = 100
+exit-paths = ["wan2", "wan1"]
+[fib.rules.conditions.bgp-conditions.match-community-set]
+community-set = "prefer-wan2"
+
+[[fib.rules]]
+name = "customers"
+priority = 20
+table = 100
+exit-paths = ["wan1", "wan2"]
+[fib.rules.conditions.match-prefix-set]
+prefix-set = "customers"
+
+[[fib.rules]]
+name = "everything-else"
+priority = 1000
+table = "main"
+exit-paths = ["wan1", "wan2"]
+
+# Traffic from the LAN uses table 100.
+[[fib.traffic-rules]]
+name = "lan"
+priority = 1010
+table = 100
+from = "172.16.0.0/16"
+
+[fib.default-route]
+mode = "table"
+table = 100
+exit-paths = ["wan1", "wan2"]

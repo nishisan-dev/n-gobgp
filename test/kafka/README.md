@@ -1,14 +1,20 @@
 # Kafka integration tests
 
-Start the two disposable Kafka clusters and run the broker integration test:
+On a Linux Docker host, start the two disposable Kafka clusters, wait for their
+protocol endpoints, and run the broker integration test:
 
 ```sh
 docker compose -f test/kafka/docker-compose.yml up -d
+bash test/kafka/wait-ready.sh
 GOBGP_KAFKA_TEST_BROKERS=127.0.0.1:19092 \
 GOBGP_KAFKA_TEST_ANALYTICS_BROKERS=127.0.0.1:19094 \
 go test -race ./pkg/sink/kafka -run TestKafkaBrokerIntegration -count=1
 docker compose -f test/kafka/docker-compose.yml down
 ```
+
+The readiness check uses the Kafka AdminClient from the broker image, through
+the same advertised loopback endpoints as the Go test. It waits at most 60
+seconds per broker and removes its probe containers on exit or cancellation.
 
 The test creates and deletes its own uniquely named topics. Broker integration
 is skipped unless both environment variables are provided. The regular unit

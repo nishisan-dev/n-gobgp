@@ -1,0 +1,135 @@
+{
+  "status": "PASS",
+  "execution_host": "root@192.168.7.2",
+  "workspace": "/var/tmp/ngobgp-fib-pr.6y0DA5",
+  "base_commit": "f5fdabedc8ac702449c3c2ec0f6d7eddbf0c0107",
+  "toolchain_image": "golang:1.27.3@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc",
+  "source_sha256": {
+    "test/fib/lab.sh": "24330ecee0f03a379a75a8c3cd8ec7c384d3de40a50895d6f3c94b7fd3d10a58",
+    "test/fib/test_lab_cleanup.py": "024ddabed0820dc545598a345d2e64b68239a4e25cf9f3fdae18b07395f2d216",
+    "pkg/fib/manager.go": "2b98a201cfde7c82aca633fad0ab8c8384f2bb0033f1c935dfbdaa3b88973add",
+    ".github/workflows/ci.yml": "64e6de7fa978ebf2a1ae762c55c323cdbc1991e07c17a88e227032f1dfcae84b",
+    ".github/workflows/release.yml": "598a13d793dac33dd4e2ca3d8fde777da3654e716c1b663c5f4d29c126085408"
+  },
+  "excluded_user_work": [
+    "Uncommitted pkg/fib/manager.go changes",
+    "pkg/fib/manager_concurrency_test.go"
+  ],
+  "existing_user_work_preserved": true,
+  "manual_tests_execution": "Only on the authorized VM",
+  "baseline": {
+    "expected_failure": true,
+    "case": "LabCleanupTest.test_normal_exit",
+    "result": "The old script left four fixture descendants alive. The test teardown terminated and reaped them."
+  },
+  "checks": [
+    {
+      "command": "python3 test/fib/test_lab_cleanup.py -v",
+      "status": "PASS",
+      "cases": 8
+    },
+    {
+      "command": "go test -race -c -o ../bin/fib.test ./pkg/fib; FIB_REQUIRE_NETNS=1 ../bin/fib.test -test.v -test.count=1 -test.timeout=180s",
+      "status": "PASS",
+      "top_level_tests": 46,
+      "skipped": 0
+    },
+    {
+      "command": "go vet ./pkg/fib",
+      "status": "PASS"
+    },
+    {
+      "command": "bash test/fib/lab.sh",
+      "status": "PASS",
+      "forwarding_checks": 47
+    },
+    {
+      "command": "actionlint -config-file .github/actionlint.yaml .github/workflows/ci.yml .github/workflows/release.yml; python3 tools/test-ci-gate.py; bash -n test/fib/lab.sh .github/runner/*.sh; python3 -m py_compile test/fib/test_lab_cleanup.py",
+      "status": "PASS"
+    }
+  ],
+  "prior_cleanup_signal_stress": {
+    "execution_host": "root@192.168.7.2",
+    "checks": 40,
+    "status": "PASS",
+    "same_lab_script_sha256": "24330ecee0f03a379a75a8c3cd8ec7c384d3de40a50895d6f3c94b7fd3d10a58"
+  },
+  "remaining_lab_processes": [],
+  "validation_log": "r11-fib-cleanup-vm-validation.log",
+  "self_hosted_smoke": {
+    "execution_host": "root@192.168.7.2",
+    "runner": "n-gobgp-vm192-1",
+    "checks": [
+      "Private Docker daemon responds",
+      "User/network namespace creation",
+      "VRF creation in disposable network namespace",
+      "Two consecutive job-start hooks",
+      "Daemon environment excludes RUNNER_TRACKING_ID"
+    ],
+    "status": "PASS",
+    "cgroup_v2": {
+      "status": "PASS",
+      "initializer": "Docker bundled dind wrapper",
+      "entrypoint_sha256": "ee1f1245993fe8306b91b0c52ea585ca2cf98cc1c20fda07999a2e3ee104e350",
+      "outer_cpu_max": "300000 100000",
+      "outer_memory_max": 8589934592,
+      "nested_cpu_max": "50000 100000",
+      "nested_memory_max": 134217728,
+      "verified_after_job_transition": true
+    },
+    "r04_full_lab": {
+      "status": "PASS",
+      "command": "bash test/r04/lab.sh",
+      "execution_host": "root@192.168.7.2",
+      "test": "TestR04ReflectorHotRecovery",
+      "test_seconds": 75.78
+    },
+    "kafka_fixture": {
+      "status": "PASS",
+      "execution_host": "root@192.168.7.2",
+      "fresh_startups": 3,
+      "broker_protocol_checks": 6,
+      "unchanged_integration_test_passes": 3,
+      "remaining_containers": [],
+      "readiness_script_sha256": "dee3b8920c6ac2b54a83e76e747cad576a9daa6348645acfaaac2eeda62dabf1"
+    },
+    "image_cache": {
+      "status": "PASS",
+      "execution_host": "root@192.168.7.2",
+      "regression_cases": 4,
+      "checks": [
+        "Restore byte-identical independent files",
+        "Reject wrong repository/run/attempt/commit",
+        "Reject corrupt or incomplete archives and manifest",
+        "Retain at most two execution entries"
+      ],
+      "real_image_archive_smoke": {
+        "both_sha256_verified": true,
+        "save_seconds": 2.24,
+        "restore_seconds": 1.461
+      },
+      "script_sha256": "772bcafad5b269fa632abc3de97c891f8c29072ac19525872fb6f16d7cac57e8"
+    }
+  },
+  "post_lint_validation": {
+    "execution_host": "root@192.168.7.2",
+    "changes": "Formatting and explicit best-effort error discards only; no behavior changes",
+    "source_sha256": {
+      "pkg/config/oc/fib.go": "7b24ed5eae31e93668c428de86d305bb773c1ca0eee1fd9563592c01597f483c",
+      "pkg/fib/manager.go": "b7707c1954b7bbb85a0be4bc2644ae6257e8eaae9191a9b9f9f6450f1117f24c",
+      "pkg/fib/metrics.go": "70de3379edacc60441efa1ec1761a153c6bb37274c3fc8495c13aaeca4332eb6",
+      "pkg/fib/monitor.go": "b1b55ceed79cb0c438acf72b71e525f70dd7b94ffa00ba2c30494bd1aa2f7136",
+      "pkg/fib/rules_test.go": "d364226c2f82f009434dc7069cee5cab392facf63ddc5e3de19573b2b7312fe4"
+    },
+    "checks": [
+      {
+        "command": "golangci-lint v2.15.0 run",
+        "status": "PASS"
+      },
+      {
+        "command": "FIB_REQUIRE_NETNS=1 go test -race ./pkg/fib ./pkg/config/oc -count=1 -timeout=180s",
+        "status": "PASS"
+      }
+    ]
+  }
+}

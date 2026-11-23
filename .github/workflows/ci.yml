@@ -21,12 +21,13 @@ jobs:
       matrix:
         GOOS: ["freebsd", "openbsd", "darwin", "windows"]
         GOARCH: ["amd64"]
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - run: |
           go env
           go build ./cmd/gobgp
@@ -37,26 +38,31 @@ jobs:
 
   unit:
     name: unit
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - run: |
           go test -v -race -timeout 240s ./...
           if [ "$(go env GOARCH)" = "amd64" ]; then go test -v -race github.com/osrg/gobgp/v4/pkg/packet/bgp -run ^Test_RaceCondition$; else echo 'skip'; fi
 
   kafka-events:
     name: Kafka event sink integration
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - name: start disposable brokers
         run: docker compose -f test/kafka/docker-compose.yml up -d
+      - name: wait for the Kafka protocol on both brokers
+        timeout-minutes: 3
+        run: bash test/kafka/wait-ready.sh
       - name: verify publication to multiple clusters
         run: go test -race ./pkg/sink/kafka -run TestKafkaBrokerIntegration -count=1 -timeout=90s
         env:
@@ -68,7 +74,7 @@ jobs:
 
   unit386:
     name: unit386
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     env:
       GOARCH: 386
       CGO_ENABLED: 1
@@ -77,6 +83,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - run: |
           sudo apt update
           sudo apt install -y gcc-multilib g++-multilib
@@ -85,12 +92,13 @@ jobs:
 
   protobuf-check:
     name: protobuf lint and format check
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - run: go install github.com/bufbuild/buf/cmd/buf@latest
 
       - name: buf lint
@@ -112,12 +120,13 @@ jobs:
 
   yang-check:
     name: generated YANG files check
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -173,12 +182,13 @@ jobs:
 
   golangci:
     name: lint
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
@@ -186,21 +196,26 @@ jobs:
 
   embedded:
     name: embedded
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - run: |
           python test/scenario_test/ci-scripts/build_embedded_go.py docs/sources/lib.md
           python test/scenario_test/ci-scripts/build_embedded_go.py docs/sources/bgp-ls.md
 
   lintdoc:
     name: lintdoc
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.3"
+          cache: false
       - run: |
           npm install markdownlint-cli
           ./node_modules/.bin/markdownlint $(find . -type d -name 'node_modules' -prune -o -type f -name '*.md' -print)
@@ -212,7 +227,7 @@ jobs:
 
   build:
     name: build container image
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     permissions:
       contents: read
       actions: write
@@ -222,12 +237,18 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
+      - name: verify image cache integrity and execution isolation
+        run: python3 tools/test-ci-image-cache.py
       - name: container image
         run: |
           test/lib/make-gobgp-ctn.sh --tag gobgp --from-image osrg/quagga
           docker save gobgp > gobgp.tar
           test/lib/make-gobgp-ctn.sh --tag gobgp-oq --from-image osrg/quagga:v1.0
           docker save gobgp-oq > gobgp-oq.tar
+
+      - name: retain verified images on this runner
+        run: python3 tools/ci-image-cache.py save .
 
       - name: upload image file
         uses: actions/upload-artifact@v7
@@ -239,14 +260,11 @@ jobs:
 
   router:
     name: router
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -256,14 +274,11 @@ jobs:
 
   evpn:
     name: evpn
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -273,14 +288,11 @@ jobs:
 
   flowspec:
     name: flowspec
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -290,14 +302,11 @@ jobs:
 
   global-policy:
     name: global-policy
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -307,14 +316,11 @@ jobs:
 
   graceful-restart:
     name: graceful-restart
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -324,14 +330,11 @@ jobs:
 
   ibgp:
     name: ibgp
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -341,14 +344,11 @@ jobs:
 
   rr:
     name: route-refector
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -358,14 +358,11 @@ jobs:
 
   as2:
     name: as2
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -375,19 +372,16 @@ jobs:
 
   ipv4-v6:
     name: ipv4-v6
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           echo  "{\"ipv6\": true,\"fixed-cidr-v6\": \"2001:db8:1::/64\"}" > daemon.json
           sudo cp daemon.json /etc/docker
-          sudo systemctl restart docker
+          sudo ngobgp-ci-docker restart
           docker load < artifact/gobgp.tar
           sudo apt-get install python3-setuptools
           sudo pip3 install -r test/pip-requires.txt
@@ -395,14 +389,11 @@ jobs:
 
   malformed:
     name: malformed
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -412,14 +403,11 @@ jobs:
 
   rs-policy-grpc:
     name: rs-policy-grpc
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -429,21 +417,18 @@ jobs:
 
   rs-policy:
     name: rs-policy
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: enable IPv6
         run: |
           sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0
           sudo sysctl -w net.ipv6.conf.default.disable_ipv6=0
           sudo sysctl -w net.ipv6.conf.all.forwarding=1
           echo '{"ipv6": true, "fixed-cidr-v6": "2001:db8:1::/64"}' | sudo tee /etc/docker/daemon.json
-          sudo systemctl restart docker
+          sudo ngobgp-ci-docker restart
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -453,14 +438,11 @@ jobs:
 
   softreset:
     name: softreset
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -470,14 +452,11 @@ jobs:
 
   rs1:
     name: routeserver1
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -487,14 +466,11 @@ jobs:
 
   rs2:
     name: routeserver2
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -504,14 +480,11 @@ jobs:
 
   llgr:
     name: llgr
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -521,14 +494,11 @@ jobs:
 
   vrf-neighbor1:
     name: vrf-neighbor1
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -538,14 +508,11 @@ jobs:
 
   vrf-neighbor2:
     name: vrf-neighbor2
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -555,14 +522,11 @@ jobs:
 
   rtc:
     name: rtc
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -572,19 +536,16 @@ jobs:
 
   unnumbered:
     name: unnumbered
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           echo  "{\"ipv6\": true,\"fixed-cidr-v6\": \"2001:db8:1::/64\"}" > daemon.json
           sudo cp daemon.json /etc/docker
-          sudo systemctl restart docker
+          sudo ngobgp-ci-docker restart
           # don't assign ipv6 addresss to docker0 bridge so two containers have p2p link.
           sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0
           sudo sysctl -w net.ipv6.conf.default.disable_ipv6=0
@@ -596,14 +557,11 @@ jobs:
 
   aspath:
     name: aspath
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -613,14 +571,11 @@ jobs:
 
   addpath:
     name: addpath
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -630,14 +585,11 @@ jobs:
 
   malformed-handling:
     name: malformed-handling
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -647,14 +599,11 @@ jobs:
 
   confederation:
     name: confederation
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -664,14 +613,11 @@ jobs:
 
   zebra:
     name: zebra
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -681,14 +627,11 @@ jobs:
 
   zebra-nht:
     name: zebra-nht
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp-oq.tar
@@ -698,14 +641,11 @@ jobs:
 
   zapi-v3:
     name: zapi-v3
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp-oq.tar
@@ -715,14 +655,11 @@ jobs:
 
   zapi-v3-multipath:
     name: zapi-v3-multipath
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp-oq.tar
@@ -732,14 +669,11 @@ jobs:
 
   mup:
     name: mup
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -749,14 +683,11 @@ jobs:
 
   bgp-ls:
     name: bgp-ls
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -766,14 +697,11 @@ jobs:
 
   tcp-md5:
     name: tcp-md5
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -783,14 +711,11 @@ jobs:
 
   tcp-ao:
     name: tcp-ao
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     needs: build
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: artifact
-          path: artifact
+      - uses: ./.github/actions/test-images
       - name: test
         run: |
           docker load < artifact/gobgp.tar
@@ -800,7 +725,7 @@ jobs:
 
   build-identity:
     name: build identity and release contract
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -808,6 +733,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - run: python3 tools/test-ci-gate.py
       - run: python3 tools/test-ci-ensure-vrf.py
       - run: tools/check-build.sh
@@ -818,13 +744,14 @@ jobs:
 
   r03-protocol:
     name: R03 protocol regressions
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - name: verify BGP recovery after RPKI, VRF, refresh, GR and LLGR changes
         env:
           GORACE: halt_on_error=1
@@ -838,13 +765,14 @@ jobs:
 
   r04-recovery:
     name: R04 Kafka capture recovery
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.3"
+          cache: false
       - name: verify loss detection and the bounded reference consumer
         run: go test -race ./pkg/sink/kafka/... -run 'TestCapture|TestReference' -count=3 -timeout=120s
       - name: exercise live recovery through an independent FRR reflector
@@ -861,11 +789,32 @@ jobs:
           path: ${{ runner.temp }}/r04-lab
           if-no-files-found: warn
 
+  r11-fib:
+    name: R11 Linux forwarding
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.3"
+          cache: false
+      - name: require network namespace support
+        run: unshare -rnm true
+      - name: verify kernel programming in network namespaces
+        env:
+          FIB_REQUIRE_NETNS: "1"
+        run: go test -race ./pkg/fib -count=1 -timeout=180s
+      - name: verify forwarding lab process cleanup
+        run: python3 test/fib/test_lab_cleanup.py
+      - name: run the two-daemon forwarding laboratory
+        run: bash test/fib/lab.sh
+
   required:
     name: required
     if: ${{ always() }}
-    needs: [crossbuild, unit, kafka-events, unit386, protobuf-check, yang-check, golangci, embedded, lintdoc, build, router, evpn, flowspec, global-policy, graceful-restart, ibgp, rr, as2, ipv4-v6, malformed, rs-policy-grpc, rs-policy, softreset, rs1, rs2, llgr, vrf-neighbor1, vrf-neighbor2, rtc, unnumbered, aspath, addpath, malformed-handling, confederation, zebra, zebra-nht, zapi-v3, zapi-v3-multipath, mup, bgp-ls, tcp-md5, tcp-ao, build-identity, r03-protocol, r04-recovery]
-    runs-on: ubuntu-24.04
+    needs: [crossbuild, unit, kafka-events, unit386, protobuf-check, yang-check, golangci, embedded, lintdoc, build, router, evpn, flowspec, global-policy, graceful-restart, ibgp, rr, as2, ipv4-v6, malformed, rs-policy-grpc, rs-policy, softreset, rs1, rs2, llgr, vrf-neighbor1, vrf-neighbor2, rtc, unnumbered, aspath, addpath, malformed-handling, confederation, zebra, zebra-nht, zapi-v3, zapi-v3-multipath, mup, bgp-ls, tcp-md5, tcp-ao, build-identity, r03-protocol, r04-recovery, r11-fib]
+    runs-on: [self-hosted, Linux, X64, n-gobgp, isolated-docker]
     steps:
       - uses: actions/checkout@v6
       - name: require every validation to succeed

@@ -39,6 +39,9 @@ configuration, then start the daemon and inspect its peers:
 ./bin/gobgp neighbor
 ```
 
+CI runs on a [dedicated self-hosted runner](.github/runner/README.md) on the
+validation VM, with a separate Docker daemon for the scenario laboratories.
+
 ## Documentation
 
 ### Project extensions: Kafka event sinks
@@ -57,6 +60,18 @@ a daemon restart.
 | [Complete YAML configuration](docs/examples/kafka-event-sinks.yaml) | Multiple clusters and sinks, including BGP-LS |
 | [Kafka record JSON examples](docs/sources/kafka-event-sinks.md#kafka-record-json-examples) | IPv4/IPv6, BGP-LS node/link/prefix, withdraw, EOR, peer state and snapshot controls; [reusable JSON file](docs/examples/kafka-records.json) |
 | [Kafka integration tests and benchmark](test/kafka/README.md) | Two-cluster delivery tests and publication throughput with a single peer key |
+
+### Project extensions: policy-based Linux forwarding
+
+The optional `fib` section installs BGP routes in Linux tables through exit
+paths (interface and gateway) chosen by rules on BGP attributes, with failover
+between links, anchors for the BGP session and managed `ip rule` entries. It
+is disabled by default and starts in an observe-only mode.
+
+| Guide | What it covers |
+| --- | --- |
+| [Policy-based Linux forwarding](docs/sources/linux-fib.md) | Network design, configuration, failover, restart, default route and coexistence |
+| [Complete TOML configuration](docs/examples/fib.toml) | Two links to one CPE with eBGP multihop between loopbacks |
 
 ### Using GoBGP
 
