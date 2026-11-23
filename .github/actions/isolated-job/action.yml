@@ -1,0 +1,7 @@
+name: Isolated n-gobgp job
+description: Start an ephemeral tool container on the existing organization runner.
+runs:
+  using: node24
+  main: index.js
+  post: index.js
+  post-if: always()
