@@ -12,6 +12,8 @@ unused networks and restores the default daemon configuration between jobs.
 The daemon runs without the job tracking identifier so Actions orphan cleanup
 does not terminate it between jobs. Go caches remain on the dedicated runner;
 setup-go artifact caching is disabled to avoid transferring them for every job.
+Docker's bundled `dind` initializer prepares nested cgroup v2 controllers before
+the runner starts, preserving CPU and memory limits for lab containers.
 The outer bridge uses `10.231.90.0/24` to avoid the scenario subnets.
 
 The container is limited to three CPUs, 8 GiB of memory and 4096 processes.

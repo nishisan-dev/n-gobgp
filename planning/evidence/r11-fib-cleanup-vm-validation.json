@@ -66,7 +66,24 @@
       "Two consecutive job-start hooks",
       "Daemon environment excludes RUNNER_TRACKING_ID"
     ],
-    "status": "PASS"
+    "status": "PASS",
+    "cgroup_v2": {
+      "status": "PASS",
+      "initializer": "Docker bundled dind wrapper",
+      "entrypoint_sha256": "ee1f1245993fe8306b91b0c52ea585ca2cf98cc1c20fda07999a2e3ee104e350",
+      "outer_cpu_max": "300000 100000",
+      "outer_memory_max": 8589934592,
+      "nested_cpu_max": "50000 100000",
+      "nested_memory_max": 134217728,
+      "verified_after_job_transition": true
+    },
+    "r04_full_lab": {
+      "status": "PASS",
+      "command": "bash test/r04/lab.sh",
+      "execution_host": "root@192.168.7.2",
+      "test": "TestR04ReflectorHotRecovery",
+      "test_seconds": 75.78
+    }
   },
   "post_lint_validation": {
     "execution_host": "root@192.168.7.2",
