@@ -39,7 +39,12 @@
     "private_ipv6_configuration_isolation": "PASS",
     "full_ipv4_ipv6_scenario": "PASS",
     "ipv4_ipv6_tests": 8,
-    "ipv4_ipv6_seconds": 48.35
+    "ipv4_ipv6_seconds": 48.35,
+    "fib_event_regression_detects_missing_notifications": "PASS",
+    "fib_event_386_repetitions": 10,
+    "fib_event_race_repetitions": 10,
+    "fib_full_race_after_timing_fix": "PASS",
+    "gofmt_on_vm": "PASS"
   },
   "host_docker_main_pid_before": 997,
   "host_docker_main_pid_after": 997,
@@ -56,6 +61,7 @@
     "tools/ci-tool.sh": "3277152b37340c1464eafd21dd7ff24cc29c145b185d21ef66e78daf9ba98383",
     "tools/test-ci-job.py": "845d8652f7f02443c0aece1ad2541de3b1aa92474d071ad6b0dc409341bd745a",
     "test/ci/isolated_jobs.py": "44ba966e9d53c70a0c968d0958aba7ea7359d5f9172d10422138b8ae91fbcd20",
-    "test/scenario_test/route_server_as2_test.py": "e4cb4a594b9545b394ea03f72a94927122b19956d73a6f2ea953c9b6c525041b"
+    "test/scenario_test/route_server_as2_test.py": "e4cb4a594b9545b394ea03f72a94927122b19956d73a6f2ea953c9b6c525041b",
+    "pkg/fib/kernel_linux_test.go": "7db5ffa04ba25c20b6962b554b1d4ba7555bb5796f419c9bb38ff551a6fad39e"
   }
 }

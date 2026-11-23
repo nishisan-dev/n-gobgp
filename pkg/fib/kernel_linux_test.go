@@ -122,17 +122,46 @@ func TestMonitorFollowsRealLinks(t *testing.T) {
 	}
 	require.True(t, next().Usable)
 
-	start := time.Now()
 	sh(t, "ip", "-n", "cpe", "link", "set", "c1", "down")
 	c := next()
 	require.False(t, c.Usable)
 	require.Equal(t, reasonLinkDown, c.Reason)
-	require.Less(t, time.Since(start), 90*time.Millisecond+cfg.Interval, "link events are handled without waiting for the next check")
 
 	sh(t, "ip", "-n", "cpe", "link", "set", "c1", "up")
 	require.True(t, next().Usable)
 	require.True(t, m.usable("wan1"))
 	require.True(t, strings.HasPrefix(m.reason("wan1"), "usable"))
+}
+
+func TestMonitorLinkEventsDoNotWaitForPeriodicChecks(t *testing.T) {
+	if !inNetns(t) {
+		return
+	}
+	// No periodic check can occur during this test. Both transitions therefore
+	// require real netlink notifications, independently of runner scheduling.
+	cfg := oc.FibHealth{Interval: time.Hour, Failures: 1, Successes: 1}
+	changes := make(chan pathChange, 16)
+	m := newMonitor(cfg, []oc.FibExitPath{{Name: "wan1", Interface: "wan1", Gateway: netip.MustParseAddr("10.0.1.1"), Probe: oc.FIB_PROBE_LINK}}, newChecker(), func(c pathChange) { changes <- c })
+	require.NoError(t, m.start())
+	defer m.stop()
+	next := func() pathChange {
+		select {
+		case c := <-changes:
+			return c
+		case <-time.After(5 * time.Second):
+			t.Fatal("no link event before the periodic check")
+		}
+		return pathChange{}
+	}
+
+	require.True(t, next().Usable)
+	sh(t, "ip", "-n", "cpe", "link", "set", "c1", "down")
+	down := next()
+	require.False(t, down.Usable)
+	require.Equal(t, reasonLinkDown, down.Reason)
+	sh(t, "ip", "-n", "cpe", "link", "set", "c1", "up")
+	require.True(t, next().Usable)
+	require.True(t, m.usable("wan1"))
 }
 
 func TestNetlinkKernelRules(t *testing.T) {
