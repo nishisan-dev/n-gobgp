@@ -230,3 +230,83 @@ Nested limits: cpu.max=50000 100000; memory.max=134217728
 PASS
 ok  	github.com/osrg/gobgp/v4/test/r04	76.933s
 R04 evidence: /work/r04-cgroup-validation
+
+=== three fresh Kafka startups with protocol readiness ===
+STARTUP_CASE=1
+ Network kafka_default Creating 
+ Network kafka_default Created 
+ Container kafka-analytics-1 Creating 
+ Container kafka-primary-1 Creating 
+ Container kafka-primary-1 Created 
+ Container kafka-analytics-1 Created 
+ Container kafka-analytics-1 Starting 
+ Container kafka-primary-1 Starting 
+ Container kafka-analytics-1 Started 
+ Container kafka-primary-1 Started 
+
+Kafka broker at 127.0.0.1:19092 is ready
+
+Kafka broker at 127.0.0.1:19094 is ready
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka	7.584s
+ Container kafka-analytics-1 Stopping 
+ Container kafka-primary-1 Stopping 
+ Container kafka-primary-1 Stopped 
+ Container kafka-primary-1 Removing 
+ Container kafka-primary-1 Removed 
+ Container kafka-analytics-1 Stopped 
+ Container kafka-analytics-1 Removing 
+ Container kafka-analytics-1 Removed 
+ Network kafka_default Removing 
+ Network kafka_default Removed 
+STARTUP_CASE=2
+ Network kafka_default Creating 
+ Network kafka_default Created 
+ Container kafka-analytics-1 Creating 
+ Container kafka-primary-1 Creating 
+ Container kafka-analytics-1 Created 
+ Container kafka-primary-1 Created 
+ Container kafka-primary-1 Starting 
+ Container kafka-analytics-1 Starting 
+ Container kafka-primary-1 Started 
+ Container kafka-analytics-1 Started 
+
+Kafka broker at 127.0.0.1:19092 is ready
+
+Kafka broker at 127.0.0.1:19094 is ready
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka	7.452s
+ Container kafka-analytics-1 Stopping 
+ Container kafka-primary-1 Stopping 
+ Container kafka-primary-1 Stopped 
+ Container kafka-primary-1 Removing 
+ Container kafka-primary-1 Removed 
+ Container kafka-analytics-1 Stopped 
+ Container kafka-analytics-1 Removing 
+ Container kafka-analytics-1 Removed 
+ Network kafka_default Removing 
+ Network kafka_default Removed 
+STARTUP_CASE=3
+ Network kafka_default Creating 
+ Network kafka_default Created 
+ Container kafka-primary-1 Creating 
+ Container kafka-analytics-1 Creating 
+ Container kafka-primary-1 Created 
+ Container kafka-analytics-1 Created 
+ Container kafka-analytics-1 Starting 
+ Container kafka-primary-1 Starting 
+ Container kafka-analytics-1 Started 
+ Container kafka-primary-1 Started 
+
+Kafka broker at 127.0.0.1:19092 is ready
+
+Kafka broker at 127.0.0.1:19094 is ready
+ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka	2.228s
+ Container kafka-analytics-1 Stopping 
+ Container kafka-primary-1 Stopping 
+ Container kafka-primary-1 Stopped 
+ Container kafka-primary-1 Removing 
+ Container kafka-primary-1 Removed 
+ Container kafka-analytics-1 Stopped 
+ Container kafka-analytics-1 Removing 
+ Container kafka-analytics-1 Removed 
+ Network kafka_default Removing 
+ Network kafka_default Removed 

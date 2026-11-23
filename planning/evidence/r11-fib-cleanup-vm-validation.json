@@ -8,7 +8,7 @@
     "test/fib/lab.sh": "24330ecee0f03a379a75a8c3cd8ec7c384d3de40a50895d6f3c94b7fd3d10a58",
     "test/fib/test_lab_cleanup.py": "024ddabed0820dc545598a345d2e64b68239a4e25cf9f3fdae18b07395f2d216",
     "pkg/fib/manager.go": "2b98a201cfde7c82aca633fad0ab8c8384f2bb0033f1c935dfbdaa3b88973add",
-    ".github/workflows/ci.yml": "170f4814a0a01c2a81848af5a76ea166dc88040d62998721f20e9efdeed7d3f4",
+    ".github/workflows/ci.yml": "eb25c96045a57e26fb3eac3f84f8527d7a71e755b903b3cf50fd527fdd67a7b7",
     ".github/workflows/release.yml": "598a13d793dac33dd4e2ca3d8fde777da3654e716c1b663c5f4d29c126085408"
   },
   "excluded_user_work": [
@@ -83,6 +83,15 @@
       "execution_host": "root@192.168.7.2",
       "test": "TestR04ReflectorHotRecovery",
       "test_seconds": 75.78
+    },
+    "kafka_fixture": {
+      "status": "PASS",
+      "execution_host": "root@192.168.7.2",
+      "fresh_startups": 3,
+      "broker_protocol_checks": 6,
+      "unchanged_integration_test_passes": 3,
+      "remaining_containers": [],
+      "readiness_script_sha256": "dee3b8920c6ac2b54a83e76e747cad576a9daa6348645acfaaac2eeda62dabf1"
     }
   },
   "post_lint_validation": {

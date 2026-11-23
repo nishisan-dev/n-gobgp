@@ -60,6 +60,9 @@ jobs:
           cache: false
       - name: start disposable brokers
         run: docker compose -f test/kafka/docker-compose.yml up -d
+      - name: wait for the Kafka protocol on both brokers
+        timeout-minutes: 3
+        run: bash test/kafka/wait-ready.sh
       - name: verify publication to multiple clusters
         run: go test -race ./pkg/sink/kafka -run TestKafkaBrokerIntegration -count=1 -timeout=90s
         env:
