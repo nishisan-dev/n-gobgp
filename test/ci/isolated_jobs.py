@@ -62,7 +62,10 @@ def main():
                 test -S /var/run/docker.sock
                 test "$(readlink -f /var/run/docker.sock)" = /run/n-gobgp-ci/docker.sock
                 test "$DOCKER_HOST" = unix:///run/n-gobgp-ci/docker.sock
-                test "$(env -u DOCKER_HOST docker info --format '{{.ID}}')" = "$(docker info --format '{{.ID}}')"
+                private_id=$(docker info --format '{{.ID}}')
+                default_id=$(env -u DOCKER_HOST docker info --format '{{.ID}}')
+                test -n "$private_id"
+                test "$default_id" = "$private_id"
                 go version | grep 'go1.27.3'
                 python3 --version | grep 'Python 3.13'
                 docker run -d --name g1 --network none busybox:stable sleep 600
@@ -76,7 +79,10 @@ def main():
             ngobgp-ci-docker restart
             docker info >/dev/null
             env -u DOCKER_HOST docker inspect g1 >/dev/null 2>&1 && exit 1
-            test "$(env -u DOCKER_HOST docker info --format '{{.ID}}')" = "$(docker info --format '{{.ID}}')"
+            private_id=$(docker info --format '{{.ID}}')
+            default_id=$(env -u DOCKER_HOST docker info --format '{{.ID}}')
+            test -n "$private_id"
+            test "$default_id" = "$private_id"
         ''')
         run(1, "docker inspect g1 --format '{{.State.Running}}' | grep true")
         assert inspected(sentinel)['State']['Running']

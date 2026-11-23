@@ -37,7 +37,7 @@
   "remaining_job_containers": [],
   "manual_tests": "Only on the authorized VM",
   "source_sha256": {
-    ".github/workflows/ci.yml": "82a76f5ca14c85feaa30ae56d750dc8698b6294e4919c8567467d102e24a4ef7",
+    ".github/workflows/ci.yml": "27fe29b043d4ba14150b57e513ac35144bce9923f7eab6d9a264c8d6f318bdbe",
     ".github/workflows/release.yml": "a0ed42f2d5da5785dfa7649e41e33390ffc920b8e4092ee4912dc3ea4018a2f2",
     ".github/ci/Dockerfile": "287eb266b14513bc2c9f73aaeea67c6b4e074f62144abf688e461397cdd0acd9",
     ".github/ci/docker-control.sh": "38e423fba9570f7e9e37ea69e967e5f55a366c50b3d8b8f370b05ef5d0f4ca57",
@@ -46,6 +46,6 @@
     "tools/ci-job.py": "33a9b6bbeddcf4caadb4868e3f311fdf0ab57f2aa67edb8699ee121b55b89855",
     "tools/ci-tool.sh": "3277152b37340c1464eafd21dd7ff24cc29c145b185d21ef66e78daf9ba98383",
     "tools/test-ci-job.py": "845d8652f7f02443c0aece1ad2541de3b1aa92474d071ad6b0dc409341bd745a",
-    "test/ci/isolated_jobs.py": "0f4fd80373ed3c5c46d5f1edda105e55306fe32c107995c3d373dcf7d5aebc2f"
+    "test/ci/isolated_jobs.py": "9ea32b09309bbeb7d5ffaaeb04a668af2c79858fdf9e9500c0c151b18d881d1f"
   }
 }
