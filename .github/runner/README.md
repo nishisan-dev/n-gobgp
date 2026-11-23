@@ -12,8 +12,16 @@ unused networks and restores the default daemon configuration between jobs.
 The daemon runs without the job tracking identifier so Actions orphan cleanup
 does not terminate it between jobs. Go caches remain on the dedicated runner;
 setup-go artifact caching is disabled to avoid transferring them for every job.
+
 Docker's bundled `dind` initializer prepares nested cgroup v2 controllers before
 the runner starts, preserving CPU and memory limits for lab containers.
+
+Scenario jobs restore image archives from a local cache keyed by repository,
+workflow execution, attempt and commit. SHA-256 checks cover both archives before
+use; a missing, mismatched or corrupt entry falls back to the original GitHub
+artifact. The build job seeds this cache, which retains two executions per
+repository (about 1.2 GiB with the current images). It is private to this runner.
+
 The outer bridge uses `10.231.90.0/24` to avoid the scenario subnets.
 
 The container is limited to three CPUs, 8 GiB of memory and 4096 processes.

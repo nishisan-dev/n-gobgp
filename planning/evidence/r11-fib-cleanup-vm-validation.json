@@ -8,7 +8,7 @@
     "test/fib/lab.sh": "24330ecee0f03a379a75a8c3cd8ec7c384d3de40a50895d6f3c94b7fd3d10a58",
     "test/fib/test_lab_cleanup.py": "024ddabed0820dc545598a345d2e64b68239a4e25cf9f3fdae18b07395f2d216",
     "pkg/fib/manager.go": "2b98a201cfde7c82aca633fad0ab8c8384f2bb0033f1c935dfbdaa3b88973add",
-    ".github/workflows/ci.yml": "eb25c96045a57e26fb3eac3f84f8527d7a71e755b903b3cf50fd527fdd67a7b7",
+    ".github/workflows/ci.yml": "64e6de7fa978ebf2a1ae762c55c323cdbc1991e07c17a88e227032f1dfcae84b",
     ".github/workflows/release.yml": "598a13d793dac33dd4e2ca3d8fde777da3654e716c1b663c5f4d29c126085408"
   },
   "excluded_user_work": [
@@ -92,6 +92,23 @@
       "unchanged_integration_test_passes": 3,
       "remaining_containers": [],
       "readiness_script_sha256": "dee3b8920c6ac2b54a83e76e747cad576a9daa6348645acfaaac2eeda62dabf1"
+    },
+    "image_cache": {
+      "status": "PASS",
+      "execution_host": "root@192.168.7.2",
+      "regression_cases": 4,
+      "checks": [
+        "Restore byte-identical independent files",
+        "Reject wrong repository/run/attempt/commit",
+        "Reject corrupt or incomplete archives and manifest",
+        "Retain at most two execution entries"
+      ],
+      "real_image_archive_smoke": {
+        "both_sha256_verified": true,
+        "save_seconds": 2.24,
+        "restore_seconds": 1.461
+      },
+      "script_sha256": "772bcafad5b269fa632abc3de97c891f8c29072ac19525872fb6f16d7cac57e8"
     }
   },
   "post_lint_validation": {

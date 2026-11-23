@@ -1,0 +1,22 @@
+name: Verified test images
+description: Restore this execution's images locally or download the original artifact.
+runs:
+  using: composite
+  steps:
+    - name: restore verified local archives
+      id: cache
+      shell: bash
+      run: |
+        if python3 tools/ci-image-cache.py restore artifact; then
+          echo 'hit=true' >> "$GITHUB_OUTPUT"
+        fi
+    - name: download original archives on cache miss
+      if: steps.cache.outputs.hit != 'true'
+      uses: actions/download-artifact@v7
+      with:
+        name: artifact
+        path: artifact
+    - name: cache downloaded archives
+      if: steps.cache.outputs.hit != 'true'
+      shell: bash
+      run: python3 tools/ci-image-cache.py save artifact

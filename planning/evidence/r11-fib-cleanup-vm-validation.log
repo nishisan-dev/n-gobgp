@@ -310,3 +310,9 @@ ok  	github.com/osrg/gobgp/v4/pkg/sink/kafka	2.228s
  Container kafka-analytics-1 Removed
  Network kafka_default Removing
  Network kafka_default Removed
+
+=== verified local image cache on VM ===
+Focused valid-cache restore test failed before restoration was implemented.
+All four regression cases then passed on root@192.168.7.2.
+Real image archives: save 2.240s; restore 1.461s; both SHA-256 checks passed.
+Workflow syntax validation passed on the VM.
