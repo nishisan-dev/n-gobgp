@@ -76,8 +76,11 @@ def main():
         run(0, '''
             test "$(cat ci-isolation-private.txt)" = private-change
             docker rm -f $(docker ps -aq)
+            printf '{"ipv6":true,"fixed-cidr-v6":"2001:db8:1::/64"}\\n' > daemon.json
+            install -D -m 644 daemon.json /etc/docker/daemon.json
             ngobgp-ci-docker restart
             docker info >/dev/null
+            docker network inspect bridge --format '{{.EnableIPv6}}' | grep true
             env -u DOCKER_HOST docker inspect g1 >/dev/null 2>&1 && exit 1
             private_id=$(docker info --format '{{.ID}}')
             default_id=$(env -u DOCKER_HOST docker info --format '{{.ID}}')
@@ -85,8 +88,9 @@ def main():
             test "$default_id" = "$private_id"
         ''')
         run(1, "docker inspect g1 --format '{{.State.Running}}' | grep true")
+        run(1, "docker network inspect bridge --format '{{.EnableIPv6}}' | grep false")
         assert inspected(sentinel)['State']['Running']
-        print('PASS same fixture name and daemon restart do not cross jobs or affect host', flush=True)
+        print('PASS same fixture name, IPv6 configuration and daemon restart stay within each job', flush=True)
         run(0, "printf 'artifact-data\\n' > ci-isolation-artifact.txt")
         command(0, 'export', 'ci-isolation-artifact.txt')
         artifact = workspace / 'ci-isolation-artifact.txt'

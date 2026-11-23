@@ -438,7 +438,7 @@ jobs:
       - name: test
         run: |
           echo  "{\"ipv6\": true,\"fixed-cidr-v6\": \"2001:db8:1::/64\"}" > daemon.json
-          sudo cp daemon.json /etc/docker
+          sudo install -D -m 644 daemon.json /etc/docker/daemon.json
           ngobgp-ci-docker restart
           docker load < artifact/gobgp.tar
           sudo apt-get install python3-setuptools
@@ -497,7 +497,8 @@ jobs:
           sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0
           sudo sysctl -w net.ipv6.conf.default.disable_ipv6=0
           sudo sysctl -w net.ipv6.conf.all.forwarding=1
-          echo '{"ipv6": true, "fixed-cidr-v6": "2001:db8:1::/64"}' | sudo tee /etc/docker/daemon.json
+          echo '{"ipv6": true, "fixed-cidr-v6": "2001:db8:1::/64"}' > daemon.json
+          sudo install -D -m 644 daemon.json /etc/docker/daemon.json
           ngobgp-ci-docker restart
       - name: test
         run: |
@@ -646,7 +647,7 @@ jobs:
       - name: test
         run: |
           echo  "{\"ipv6\": true,\"fixed-cidr-v6\": \"2001:db8:1::/64\"}" > daemon.json
-          sudo cp daemon.json /etc/docker
+          sudo install -D -m 644 daemon.json /etc/docker/daemon.json
           ngobgp-ci-docker restart
           # don't assign ipv6 addresss to docker0 bridge so two containers have p2p link.
           sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0
