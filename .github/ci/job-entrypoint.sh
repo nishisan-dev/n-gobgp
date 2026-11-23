@@ -12,6 +12,9 @@ fi
 mkdir -p /run/n-gobgp-ci /work/tmp /work/steps /work/source
 printf 'isolated-job\n' > /run/n-gobgp-ci/owner
 ngobgp-ci-docker start
+# Legacy scenario helpers intentionally discard environment variables. Their
+# default endpoint must still reach this job's daemon, never the host daemon.
+ln -s /run/n-gobgp-ci/docker.sock /var/run/docker.sock
 touch /run/n-gobgp-ci/ready
 # Bound the lifetime even if the native runner crashes before post-job cleanup.
 exec timeout --signal=TERM --kill-after=10s "${NGOBGP_CI_TTL:-3000}s" tail -f /dev/null

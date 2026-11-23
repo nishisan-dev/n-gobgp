@@ -59,20 +59,24 @@ def main():
             assert all(m['Type'] == 'volume' for m in resource['Mounts'])
             assert not resource['HostConfig']['PidMode']
             run(index, '''
-                test ! -S /var/run/docker.sock
+                test -S /var/run/docker.sock
+                test "$(readlink -f /var/run/docker.sock)" = /run/n-gobgp-ci/docker.sock
                 test "$DOCKER_HOST" = unix:///run/n-gobgp-ci/docker.sock
+                test "$(env -u DOCKER_HOST docker info --format '{{.ID}}')" = "$(docker info --format '{{.ID}}')"
                 go version | grep 'go1.27.3'
                 python3 --version | grep 'Python 3.13'
                 docker run -d --name g1 --network none busybox:stable sleep 600
                 printf 'private-change\n' > ci-isolation-private.txt
             ''')
-            print('PASS private daemon, checkout, versions and resource limits', index, flush=True)
+            print('PASS private default socket, daemon, checkout, versions and resource limits', index, flush=True)
         assert not (workspace / 'ci-isolation-private.txt').exists()
         run(0, '''
             test "$(cat ci-isolation-private.txt)" = private-change
             docker rm -f $(docker ps -aq)
             ngobgp-ci-docker restart
             docker info >/dev/null
+            env -u DOCKER_HOST docker inspect g1 >/dev/null 2>&1 && exit 1
+            test "$(env -u DOCKER_HOST docker info --format '{{.ID}}')" = "$(docker info --format '{{.ID}}')"
         ''')
         run(1, "docker inspect g1 --format '{{.State.Running}}' | grep true")
         assert inspected(sentinel)['State']['Running']

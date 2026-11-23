@@ -27,21 +27,25 @@
     "fib_and_config_race_tests": "PASS",
     "full_r04_reflector_recovery": "PASS",
     "r04_test_seconds": 89.34,
-    "workflow_syntax": "PASS"
+    "workflow_syntax": "PASS",
+    "legacy_default_socket_red_green": "PASS",
+    "legacy_malformed_scenario": "PASS",
+    "legacy_malformed_seconds": 110.16
   },
   "host_docker_main_pid_before": 997,
   "host_docker_main_pid_after": 997,
   "remaining_job_containers": [],
   "manual_tests": "Only on the authorized VM",
   "source_sha256": {
-    ".github/workflows/ci.yml": "ad1950518788ab5c7a62800ef3d269e1c6e7966e65452b5084917c91c0858b8b",
+    ".github/workflows/ci.yml": "82a76f5ca14c85feaa30ae56d750dc8698b6294e4919c8567467d102e24a4ef7",
     ".github/workflows/release.yml": "a0ed42f2d5da5785dfa7649e41e33390ffc920b8e4092ee4912dc3ea4018a2f2",
     ".github/ci/Dockerfile": "287eb266b14513bc2c9f73aaeea67c6b4e074f62144abf688e461397cdd0acd9",
     ".github/ci/docker-control.sh": "38e423fba9570f7e9e37ea69e967e5f55a366c50b3d8b8f370b05ef5d0f4ca57",
-    ".github/ci/job-entrypoint.sh": "4cc8d736757c077f65babb3bf734b91fb1b0561c714a7c891f6d24b8e2bdf363",
+    ".github/ci/job-entrypoint.sh": "a16283da1ac28bfcd65ee86a5c7910cb562ea56c423893af5cba683b3f1483ca",
     ".github/actions/isolated-job/index.js": "fdd96aa8e44d1af06ebfe3be0fbd81dbf6ba28f185111c56bf67b962553cd744",
     "tools/ci-job.py": "33a9b6bbeddcf4caadb4868e3f311fdf0ab57f2aa67edb8699ee121b55b89855",
     "tools/ci-tool.sh": "3277152b37340c1464eafd21dd7ff24cc29c145b185d21ef66e78daf9ba98383",
-    "tools/test-ci-job.py": "845d8652f7f02443c0aece1ad2541de3b1aa92474d071ad6b0dc409341bd745a"
+    "tools/test-ci-job.py": "845d8652f7f02443c0aece1ad2541de3b1aa92474d071ad6b0dc409341bd745a",
+    "test/ci/isolated_jobs.py": "0f4fd80373ed3c5c46d5f1edda105e55306fe32c107995c3d373dcf7d5aebc2f"
   }
 }

@@ -18,6 +18,8 @@ anonymous Docker storage volume. It receives a **copy** of the checkout rather
 than a writable bind mount. The host Docker socket, runner home, SSH keys and
 other projects' directories are not mounted. Legacy Docker restarts, fixed
 container names and fixture cleanup affect only that job's private daemon.
+Inside the job, the conventional `/var/run/docker.sock` path is a symlink to
+its private socket, so helpers that clear `DOCKER_HOST` retain the same isolation.
 The controller refuses cleanup when the resource ownership labels do not match.
 It never calls a host-wide prune or restarts the host Docker service.
 
