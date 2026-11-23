@@ -26,7 +26,7 @@ from lib.noseplugin import parser_option
 
 from lib import base
 from lib.base import (
-    BGP_FSM_IDLE,
+    BGP_FSM_ACTIVE,
     BGP_FSM_ESTABLISHED,
     local,
     wait_for,
@@ -102,5 +102,31 @@ class GoBGPTestBase(unittest.TestCase):
     def test_03_stop_q2_and_check_neighbor_status(self):
         q2 = self.quaggas['q2']
         q2.remove()
-        self.gobgp.wait_for(expected_state=BGP_FSM_IDLE, peer=q2)
+        # The default Idle hold after transport loss lasts only one second.
+        # Polling for it races with the normal retry transition to Active.
+        self.gobgp.wait_for(expected_state=BGP_FSM_ACTIVE, peer=q2)
+
+        expected_routes = {
+            'q1': {'10.0.3.0/24', '10.0.4.0/24'},
+            'q3': {'10.0.1.0/24', '10.0.4.0/24', '10.0.10.0/24'},
+            'q4': {'10.0.1.0/24', '10.0.3.0/24', '10.0.10.0/24'},
+        }
+
+        def _routes_converged():
+            for name, expected in expected_routes.items():
+                client = self.quaggas[name]
+                self.assertEqual(self.gobgp.get_neighbor_state(client), BGP_FSM_ESTABLISHED)
+                actual = {route['prefix'] for route in self.gobgp.get_local_rib(client)}
+                if actual != expected:
+                    return False
+            return True
+
+        # Require the removed client's routes to disappear while preserving
+        # every surviving client's routes and established session.
+        wait_for(
+            _routes_converged,
+            timeout=self.retry_limit * self.wait_per_retry,
+            interval=self.wait_per_retry,
+            timeout_message='AS2 routes did not converge after removing q2',
+        )
 
